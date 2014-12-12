@@ -1,0 +1,59 @@
+%!TEX program = xelatex
+
+\documentclass{article}
+
+\title{Software alignment of PHENIX VTX detector using the Millepede II package}
+\author{Andrew Adare, Darren McGlinchey, Jin Huang}
+\date{\today}
+\begin{document}
+\maketitle
+\section{Introduction}
+The PHENIX VTX detector is designed to locate primary and secondary vertices with a precision of xxx um as well as significantly improve tracking performance in conjunction with other detectors. A software model of the VTX sensors is required during track reconstruction from raw hits. This geometry modeled in the software must reflect the actual position of the VTX sensor planes to within a few 10s of microns in order to achieve design resolution in quantities such as the distance of closest approach (DCA) between tracks and the primary vertex. Direct measurements of the sensor planes through surveys can help, but the most precise method for obtaining the correct detector geometry is to use the reconstructed tracks themselves---or more precisely, the distance between track projections and measured hits on a sensor plane. These distances are referred to as ``pulls'' or residuals.
+
+A traditional method of aligning the detector is to histogram the residuals, then directly adjust the position of the detector units such that the residual distributions are centered at zero, with the smallest variance possible. This method handles each detector unit independently, and as such, there is no explicit notion of a global optimum. If one sensor is only partially functional, it is still relocated with equal weight as a fully operational sensor, despite its potentially larger uncertainty or bias. In addition, the sensitive direction the sensors is highly anisotropic in space. For example, the VTX sensors are sensitive primarily in the azimuthal and longitudinal directions. This means that there are strong constraints on certain coordinates and weak constraints in others, depending on sensor and track positions and orientations. The traditional method does not provide a way to properly take this into account.
+
+The Millepede package was designed to alleviate these problems by minimizing a global objective rather than handling the detector sub-units in isolation. It works by collecting a large number of residuals, each associated with their own ``local fit object'' (i.e. a track), then trying out various combinations of global parameters (i.e. sensor positions) to find the configuration that minimizes the total overall (squared) distance between the track projections and measured hits. Like many optimization packages, there are a few qualifications: (a) Millepede can only provide a local minimum, and (b) a correct gradient of the objective with respect to each parameter must be provided by the user. In complicated geometries, the latter point can be one of the most difficult parts about getting Millepede to work right.
+
+This document describes how Millepede was used to align the VTX in Run 14, hopefully in sufficient detail that the next person given this job can get through it without too much trouble.
+
+\section{VTX geometry and alignment parameters}
+The VTX has a roughly concentric cylindrical geometry. It consists of 4 barrel layers numbered 0-3, and divided into east and west halves or ``arms''. There are 10, 20, 16, and 24 ladders in layers 0-3. The ladders are divided equally between the two arms, so that e.g. W0 is a halflayer that contains ladders 0-4; E0, 5-9. For our purposes, a ladder is the finest geometric unit that is ever free to be repositioned.
+
+\subsection{\texttt{libsvxgeo}}
+Fortunately, the VTX geometry can be composed from nothing more than a bunch of rectangular volumes. The geometry model and manipulations are handled by the SvxTGeo class, which in turn leverages the geometry tools included by default with ROOT. This package resides in CVS at \texttt{offline/packages/svxgeo}, browsable at
+
+\medskip
+\verb|https://www.phenix.bnl.gov/viewvc/viewvc.cgi/phenix/offline/packages/svxgeo/|.
+% \verb|https://git.racf.bnl.gov/phenix/cgit/vtx-align/vtx-align.git|.
+
+\medskip
+As with other detector geometry software packages like GEANT, the geometry is conceptually modeled using a tree data structure, with the top node representing a reference frame like the experiment hall. Detector elements are grouped or nested within larger units, and their positions and orientations need only be specified with respect to their parent node. Position of any element in the global reference frame can thus be computed at any time by a composition of translations and rotations up the node tree. This is all handled by library functions in ROOT's geometry classes.
+
+The node tree in SvxTGeo is particularly shallow: under the top volume, there are only sensors. This is also more or less the case in the VTX PISA framework.
+There are no explicit ladder nodes or volumes. Instead, the sensors are locked together to effectively create ladders when needed. Thus, all manipulations currently available in the SvxTGeo class move only ladders, halflayers, or arms.
+
+In addition to SvxTGeo, there is an SvxProj class that can be used to simulate track hits in the VTX geometry, given a track with an initial angle (and momentum, if $B \neq 0$). In particular, \texttt{SvxProj::FindHitsFromVertex()} can be used to compute residuals from simulated in a geometry with known misalignment. This was used extensively to understand and debug the Millepede alignment process, and is recommended for gaining insights in future alignment projects.
+
+\section{Fitting tracks in zero-field data}
+For self-alignment of the VTX, the PHENIX standalone tracking software is used for association of hits to common track stubs, and little else. Given a set of hits that have already been associated to a track in zero-field data, the task of finding the track parameters by fitting to 3 or 4 hits (plus a vertex or beamcenter position) is fairly simple and computationally fast.
+
+The tracks are fit separately in the azimuthal plane and in the radial-longitudinal plane.
+
+%% Pick up here
+
+\subsection{Residual definitions}
+Mention hit resolutions here.
+\section{Finding the primary vertex and the beam center}
+
+\section{Alignment software framework and data pipeline}
+\subsection{Running productions}
+\subsection{Filtering production output}
+\section{Millepede interface}
+\subsection{Constrained optimization}
+\subsection{Mille}
+\subsection{Pede}
+\section{Orienting the VTX with respect to the central arms}
+\section{Procedure followed for Run 14}
+\section{Recommendations}
+\section{Appendix A: global derivatives}
+\end{document}
