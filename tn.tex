@@ -97,16 +97,12 @@ This script is designed to be run iteratively, and the results are stored and pl
 For self-alignment of the VTX, the PHENIX standalone tracking software is used for association of hits to common track stubs, and little else. Given a set of hits that have already been associated to a track in zero-field data, the task of finding the track parameters by fitting to 3 or 4 hits (plus a vertex or beamcenter position) is simple and fast to compute.
 
 \subsection{Decomposition of fit into two planes} \label{sec:fitdecomp}
-Each track is fit separately in the azimuthal plane and in the radial-longitudinal plane. This involves constructing two simple linear functions:
-\begin{equation} \label{eq:zrfit}
-z(r) = z_0 + cr
-\end{equation}
-where $c = \cot \theta$, and
+Each track is fit separately in the azimuthal plane and in the radial-longitudinal plane. This involves constructing two simple linear functions. First, the azimuthal equation is
 \begin{equation} \label{eq:yxfit}
 y'(x') = y_0' + m' x'.
 \end{equation}
-In equation \ref{eq:yxfit}, the primes indicate rotation of the track within the detector coordinate system. They are introduced for the following reason: ordinary least squares fitting requires that the errors be parallel to the dependent coordinate axis, but in the $x$-$y$ plane, the resolution lies along the azimuthal direction (which, of course, is only aligned with $y$ at $\phi=0$). To rectify this, the track is simply rotated ``backwards'' about the $z$ axis by its approximate azimuthal angle $\phi_{rot}$ such that it points along the $x$ axis. To be explicit,
-\begin{equation}
+In equation \ref{eq:yxfit}, the primes indicate rotation of the track within the detector coordinate system. They are introduced for the following reason: ordinary least squares fitting requires that the errors be parallel to the dependent coordinate axis, but in the $x$-$y$ plane, the resolution lies along the azimuthal direction (which, of course, is only aligned with $y$ at $\phi \approx 0$). To rectify this, the track is simply rotated ``backwards'' about the $z$ axis by its approximate azimuthal angle $\phi_{rot}$ such that it points along the $x$ axis. To be explicit,
+\begin{equation} \label{eq:phirot}
 \begin{pmatrix}
 x'\\
 y'
@@ -124,8 +120,15 @@ y
 
 $\phi_{rot}$ is simply estimated using the angle of the outermost VTX hit---it does not need to be perfect. After rotation, $x' \approx r$, and the intercept $y_0'$ and slope $m'$ are both small fit parameters. In the standard detector frame, the track angle $\phi$ is
 \begin{equation}
-\phi = \phi_{rot} + \tan^{-1} m'
+\phi = \phi_{rot} + \tan^{-1} m'.
 \end{equation}
+
+The second fit equation for the $z$ coordinate also defines $x'$ as the independent variable (rather than $r$) in order to be strictly orthogonal to equation \ref{eq:yxfit}.
+\begin{equation} \label{eq:zrfit}
+z(x') = z_0 + c x'
+\end{equation}
+where $c = \cot \theta$.
+
 
 \subsection{Fit model and solution method} \label{sec:lsq}
  For each track, the data consists of a set of points $\{x_i,y_i\}_{i=1}^N$ where $(x_i \to r_i, y_i \to z_i)$ in equation \ref{eq:zrfit}, and $(x_i \to x'_i, y_i \to y'_i)$ in equation \ref{eq:yxfit}. $N$ is very small here; typical dimensions range from 3-5. There are several ways to do these simple straight-line fits, but here, we use the method of maximum likelihood assuming a multivariate Gaussian model with a covariance matrix $\Sigma$ storing the measurement resolutions. This amounts to solving a generalized least squares (GLS) problem for the linear system $y = X\beta + \epsilon$:
@@ -145,10 +148,10 @@ y =
  \qquad
 X =
  \begin{pmatrix}
-  1 & r^{(1)} \\
-  1 & r^{(2)} \\
+  1 & x'^{(1)} \\
+  1 & x'^{(2)} \\
   \vdots  & \vdots \\
-  1 & r^{(N)} 
+  1 & x'^{(N)} 
  \end{pmatrix},
  \qquad
 \beta = 
@@ -205,6 +208,17 @@ The residuals are defined consistently throughout as
 \begin{equation}\label{eq:resdef}
 \mathbf{x}_{\mathrm{proj}} - \mathbf{x}_{\mathrm{meas}}
 \end{equation}
+The azimuthal residuals are calculated as
+\begin{equation} \label{eq:ds}
+\Delta s = y_0' + m' x' - y_{meas}'
+\end{equation}
+where $y_{meas}'$ is the measured position of a hit in the rotated frame (see eq. \ref{eq:phirot}). Similarly,
+\begin{equation} \label{eq:dz}
+\Delta z = z_0 + cx' - z_{meas}'
+\end{equation}
+
+
+
 \section{Finding the primary vertex and the beam center}
 In the azimuthal plane, the primary vertex position $(v_x, v_y)$ can be estimated by solving the least-squares system $y_0^{(i)} = -m^{(i)}v_x + v_y$ for $i=1...N$ zero-field tracks, where $y_0 = y(x=0)$ and $m$ is the track slope $\tan(\phi)$. In matrix-vector form, this is $y = X\beta + \epsilon$ where
 \begin{equation} \label{eq:vxy}
