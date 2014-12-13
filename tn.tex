@@ -2,9 +2,9 @@
 \documentclass[12pt]{article}
 % \usepackage[margin=1.0in]{geometry}
 \usepackage{amsmath}
-\usepackage[colorlinks=true,urlcolor=blue]{hyperref}
-\usepackage{titlesec}
 \usepackage[usenames,dvipsnames,svgnames,table]{xcolor}
+\usepackage[colorlinks=true,urlcolor=blue,linkcolor=blue]{hyperref}
+\usepackage{titlesec}
 \usepackage{ifxetex}
 \ifxetex
 \usepackage{mathspec}
@@ -13,9 +13,9 @@
 \defaultfontfeatures{Ligatures=TeX}
 % \setromanfont{Iowan Old Style Roman}
 \setsansfont{PT Sans}
-\setmathfont{XITS Math}
-\setmathrm{XITS Math}
-\setmonofont[]{Menlo}
+% \setmathfont{XITS Math}
+% \setmathrm{XITS Math}
+\setmonofont[Scale=0.8]{Menlo}
 \else
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
@@ -27,13 +27,15 @@
   {\thesection}{1em}{}
 \titleformat{\subsection}
   {\normalfont\sffamily\large\bfseries\color{SteelBlue}}
-  {\thesection}{1em}{}
+  {\thesubsection}{1em}{}
 
 % Commands, aliases, etc
 \DeclareMathOperator*{\argmin}{argmin}
 
+% \setcounter{secnumdepth}{3}
+
 \title{\sffamily\bfseries{Software alignment of PHENIX VTX detector using the Millepede II package}}
-\author{\sffamily{Andrew Adare, Darren McGlinchey, Jin Huang}}
+\author{\sffamily{Andrew Adare, Darren McGlinchey, Jin Huang, Jamie Nagle}}
 % \author{\fontspec{Helvetica Neue}{Andrew Adare, Darren McGlinchey, Jin Huang}}
 \date{\sffamily{\today}}
 \begin{document}
@@ -50,9 +52,8 @@ This document describes how Millepede was used to align the VTX in Run 14, hopef
 \section{VTX geometry and alignment parameters}
 The VTX has a roughly concentric cylindrical geometry. It consists of 4 barrel layers numbered 0-3, and divided into east and west halves or ``arms''. There are 10, 20, 16, and 24 ladders in layers 0-3. The ladders are divided equally between the two arms, so that e.g. W0 is a halflayer that contains ladders 0-4; E0, 5-9. For our purposes, a ladder is the finest geometric unit that is ever free to be repositioned.
 
-\subsection{\texttt{libsvxgeo}}
+\subsection{\texttt{libsvxgeo}} \label{sec:svxgeo}
 Fortunately, the VTX geometry can be composed from nothing more than a bunch of rectangular volumes. The geometry model and manipulations are handled by the SvxTGeo class, which in turn leverages the geometry tools included by default with ROOT. This package resides in CVS at \href{https://www.phenix.bnl.gov/viewvc/viewvc.cgi/phenix/offline/packages/svxgeo}{\texttt{offline/\-packages/\-svxgeo}}.
-% \verb|https://git.racf.bnl.gov/phenix/cgit/vtx-align/vtx-align.git|.
 
 \medskip
 As with other detector geometry software packages like GEANT, the geometry is conceptually modeled using a tree data structure, with the top node representing a reference frame like the experiment hall. Detector elements are grouped or nested within larger units, and their positions and orientations need only be specified with respect to their parent node. Position of any element in the global reference frame can thus be computed at any time by a composition of translations and rotations up the node tree. This is all handled by library functions in ROOT's geometry classes.
@@ -62,28 +63,132 @@ There are no explicit ladder nodes or volumes. Instead, the sensors are locked t
 
 In addition to SvxTGeo, there is an SvxProj class that can be used to simulate track hits in the VTX geometry, given a track with an initial angle (and momentum, if $B \neq 0$). In particular, \texttt{SvxProj::FindHitsFromVertex()} can be used to compute residuals from simulated in a geometry with known misalignment. This was used extensively to understand and debug the Millepede alignment process, and is recommended for gaining insights in future alignment projects.
 
-\section{Fitting tracks in zero-field data}
-For self-alignment of the VTX, the PHENIX standalone tracking software is used for association of hits to common track stubs, and little else. Given a set of hits that have already been associated to a track in zero-field data, the task of finding the track parameters by fitting to 3 or 4 hits (plus a vertex or beamcenter position) is fairly simple and computationally fast.
+\section{Millepede II}
+The \href{http://www.desy.de/~kleinwrt/MP2/doc/html/index.html}{Millepede II} package version 04-01-01 was used for Run 14. It was compiled using GCC 4.6 on Mac OS X 10.9. (Note that Clang/LLVM does not natively support Fortran compilation at this time.)
 
-The tracks are fit separately in the azimuthal plane and in the radial-longitudinal plane. This involves constructing two simple linear functions:
-\begin{equation}\label{eq:zrfit}
+Millepede II consists of two components, \texttt{mille} and \texttt{pede}. The first is responsible for collecting alignment data and writing it to a binary file for input to \texttt{pede}. It is available as a C++ class, and is packaged with the \texttt{vtx-align} software for convenience (see section \ref{sec:vtxalign}). The second is a static executable accepting a configuration file name as a command-line argument.
+
+\section{VTX alignment software} \label{sec:vtxalign}
+The \texttt{vtx-align} package is kept on the \href{https://git.racf.bnl.gov/phenix/cgit/vtx-align/vtx-align.git}{RCF Git repository}. There is some C++11 code scattered throughout, so ROOT 6 is required. 
+
+The only dependency is \texttt{libsvxgeo} (see section \ref{sec:svxgeo}) and a file called \texttt{UtilFns.h} used for plotting, i/o, and other generic tasks. This file is available at \href{https://github.com/andrewadare/utils.git}{the author's github site}. (TODO: I should probably just add this into vtx-align)
+
+\subsection{Software layout}
+The code was deliberately designed to be as simple and flexible as possible: all reusable code is encapsulated in functions residing in various header files without namespace qualification. Outside of function signatures, there are very few global variables. During execution, the majority of the mutable program state is held in a single object (\texttt{geoEvents}), which is simply a nested STL vector of \texttt{SvxGeoTrack} objects. VtxIO.h contains the code to go from a geoEvents object to TTree storage or vice versa.
+
+For a small software project, this is by far simpler and more flexible than encapsulating data in a heirarchical object-oriented framework. There are a few downsides: it may be inobvious at times where some functions are defined, and the global namespace may get crowded if many headers are included. But these were not problems in practice, and this model worked extremely well for this project.
+
+\subsection{\texttt{VtxAlign.C}}
+The core script interfacing with \texttt{Mille} and \texttt{pede} is \texttt{VtxAlign.C}. In a nutshell, it does the following:
+\begin{enumerate}
+  \item Read in the VTX geometry from a text file and create an SvxTGeo model
+  \item Specify the detector sub-units to be aligned (arm, halflayer, ladder) and their allowed degrees of freedom. Together, this is the list of global parameters.
+  \item Read in track/residual data as a \texttt{geoEvents} object
+  \item Write a text file listing the global parameter constraints
+  \item Write a steering file for input to \texttt{pede}
+  \item Run \texttt{Mille::mille()} to generate a binary input file
+  \item Run \texttt{pede}
+  \item Apply the recommended geometry corrections
+  \item Refit the tracks in the new geometry, update the residuals, and store the results.
+\end{enumerate}
+This script is designed to be run iteratively, and the results are stored and plotted at each step to track progress.
+
+\section{Fitting tracks in zero-field data}
+For self-alignment of the VTX, the PHENIX standalone tracking software is used for association of hits to common track stubs, and little else. Given a set of hits that have already been associated to a track in zero-field data, the task of finding the track parameters by fitting to 3 or 4 hits (plus a vertex or beamcenter position) is simple and fast to compute.
+
+\subsection{Decomposition of fit into two planes} \label{sec:fitdecomp}
+Each track is fit separately in the azimuthal plane and in the radial-longitudinal plane. This involves constructing two simple linear functions:
+\begin{equation} \label{eq:zrfit}
 z(r) = z_0 + cr
 \end{equation}
 where $c = \cot \theta$, and
-\begin{equation}\label{eq:yxfit}
+\begin{equation} \label{eq:yxfit}
 y'(x') = y_0' + m' x'.
 \end{equation}
-In equation \ref{eq:yxfit}, the primes are introduced for the following reason. Ordinary least squares fitting requires that the errors be aligned with the dependent variable, but in the $x$-$y$ plane, the errors lie in the azimuthal direction. To rectify this, the track is simply rotated ``backwards'' about the $z$ axis by its approximate azimuthal angle $\phi_{rot} = -\phi$ such that it points along the $x$ axis. $\phi_{rot}$ is simply estimated using the angle of the outermost VTX hit---it does not need to be perfect. After rotation, the intercept $y_0'$ and slope $m'$ are both small, and $x' \approx r$.
+In equation \ref{eq:yxfit}, the primes indicate rotation of the track within the detector coordinate system. They are introduced for the following reason: ordinary least squares fitting requires that the errors be parallel to the dependent coordinate axis, but in the $x$-$y$ plane, the resolution lies along the azimuthal direction (which, of course, is only aligned with $y$ at $\phi=0$). To rectify this, the track is simply rotated ``backwards'' about the $z$ axis by its approximate azimuthal angle $\phi_{rot}$ such that it points along the $x$ axis. To be explicit,
+\begin{equation}
+\begin{pmatrix}
+x'\\
+y'
+\end{pmatrix}
+=
+\begin{pmatrix}
+\cos \phi_{rot} & \sin \phi_{rot}\\
+-\sin \phi_{rot} &  \cos \phi_{rot}
+\end{pmatrix}
+\begin{pmatrix}
+x\\
+y
+\end{pmatrix}.
+\end{equation}
 
- For each track, the data consists of a set of points $\{x_i,y_i\}_{i=1}^N$ where $(x_i \to r_i, y_i \to z_i)$ in equation \ref{eq:zrfit}, and $(x_i \to x'_i, y_i \to y'_i)$ in equation \ref{eq:yxfit}. $N$ is very small here; typical dimensions range from 3-5. There are several ways to do these simple straight-line fits, but here, we use the method of maximum likelihood assuming a multivariate Gaussian model with a covariance matrix $\Sigma$ storing the measurement resolutions. This amounts to solving a generalized least squares (GLS) problem
+$\phi_{rot}$ is simply estimated using the angle of the outermost VTX hit---it does not need to be perfect. After rotation, $x' \approx r$, and the intercept $y_0'$ and slope $m'$ are both small fit parameters. In the standard detector frame, the track angle $\phi$ is
+\begin{equation}
+\phi = \phi_{rot} + \tan^{-1} m'
+\end{equation}
+
+\subsection{Fit model and solution method} \label{sec:lsq}
+ For each track, the data consists of a set of points $\{x_i,y_i\}_{i=1}^N$ where $(x_i \to r_i, y_i \to z_i)$ in equation \ref{eq:zrfit}, and $(x_i \to x'_i, y_i \to y'_i)$ in equation \ref{eq:yxfit}. $N$ is very small here; typical dimensions range from 3-5. There are several ways to do these simple straight-line fits, but here, we use the method of maximum likelihood assuming a multivariate Gaussian model with a covariance matrix $\Sigma$ storing the measurement resolutions. This amounts to solving a generalized least squares (GLS) problem for the linear system $y = X\beta + \epsilon$:
  \begin{equation}\label{eq:gls}
- \hat\beta = \argmin_{\beta} \, (y - \beta x)^T \Sigma^{-1} (y - \beta x)
+ \hat\beta = \argmin_{\beta} \, (y - X\beta)^T \Sigma^{-1} (y - X\beta).
  \end{equation}
- for the slope and intercept parameters represented as a 2-vector $\beta$. The solution is expressed in terms of the normal equations obtained by differentiating the right side of equation \ref{eq:gls} with respect to $\beta$ and setting to zero:
+% $X$ is a matrix whose first column is ones and whose second column is $\{x_i\}_{i=1}^N$, $y$ is an $N$-vector of dependent variables ($z$ or $y'$), and $\beta$ is a 2-vector of (intercept, slope) parameters $(z_0, c)^T$ or $(y_0',m')^T$. 
+In the $r$-$z$ plane (equation \ref{eq:zrfit}), these variables are
+\begin{equation} \label{eq:rzmat}
+y = 
+ \begin{pmatrix}
+ z^{(1)}\\
+ z^{(2)}\\
+ \vdots \\
+ z^{(N)}\\
+ \end{pmatrix},
+ \qquad
+X =
+ \begin{pmatrix}
+  1 & r^{(1)} \\
+  1 & r^{(2)} \\
+  \vdots  & \vdots \\
+  1 & r^{(N)} 
+ \end{pmatrix},
+ \qquad
+\beta = 
+ \begin{pmatrix}
+ z_0\\
+ c
+ \end{pmatrix}
+\end{equation}
+and in the azimuthal plane (equation \ref{eq:yxfit}), they are
+\begin{equation} \label{eq:xymat}
+y = 
+ \begin{pmatrix}
+ y'^{(1)}\\
+ y'^{(2)}\\
+ \vdots \\
+ y'^{(N)}\\
+ \end{pmatrix},
+ \qquad
+X =
+ \begin{pmatrix}
+  1 & x'^{(1)} \\
+  1 & x'^{(2)} \\
+  \vdots  & \vdots \\
+  1 & x'^{(N)} 
+ \end{pmatrix},
+ \qquad
+\beta = 
+ \begin{pmatrix}
+ y_0'\\
+ m'
+ \end{pmatrix}.
+\end{equation}
+
+
+
+The maximum likelihood solution results from differentiating the right side of equation \ref{eq:gls} with respect to $\beta$ and setting to zero to obtain the normal equations for least squares:
  \begin{equation}\label{eq:normal}
- \hat\beta = (X^T \Sigma^{-1} X)^{-1} X^T \Sigma^{-1} y
+ \hat\beta = (X^T \Sigma^{-1} X)^{-1} X^T \Sigma^{-1} y.
  \end{equation}
-This can be computed efficiently using matrix factorizations such LU, QR, or SVD. The latter is used here because it can provide a covariance matrix of uncertainties with the solution (although this isn't currently being used for anything.) Since $N$ is so small, there is no significant computational penalty to using the SVD versus simpler factorizations. The matrix inverse in equation \ref{eq:normal} is tackled using the SVD as follows:
+This can be computed efficiently using matrix factorizations such as LU, QR, or SVD. The latter is used here because it can provide a covariance matrix of uncertainties with the solution (although this isn't currently being used.) Since $N$ is so small, there is no significant computational penalty to using the SVD versus simpler factorizations. The matrix inversion in equation \ref{eq:normal} is tackled using the SVD as follows:
 \begin{equation}\label{eq:svd}
 A \equiv X^T \Sigma^{-1} X = U S V^T \to A^{-1} = V S^{\dagger} U^{T}
 \end{equation}
@@ -91,17 +196,106 @@ so that
 \begin{equation}\label{eq:betahat}
 \hat\beta = V S^{\dagger} U^{T} X^T \Sigma^{-1} y.
 \end{equation}
-The $z$-$r$ fit will be described first, since it is slightly simpler.
-\subsection{Residual definitions}
-Mention hit resolutions here.
-\section{Finding the primary vertex and the beam center}
+For this project, the covariance $\Sigma$ was simply made diagonal with elements $\{\sigma_i^2 \}_{i=1}^N$, where $\sigma_i$ is the resolution of measurement $i$. More sophisticated tracking algorithms such as a Kalman filter would handle covariance between hits more generally (at the cost of greater complexity).
 
-\section{Alignment software framework and data pipeline}
-\subsection{Running productions}
+TODO: put in expression for covariance of beta. Say a bit more about how the resolution is estimated.
+
+\subsection{Residual definitions}
+The residuals are defined consistently throughout as 
+\begin{equation}\label{eq:resdef}
+\mathbf{x}_{\mathrm{proj}} - \mathbf{x}_{\mathrm{meas}}
+\end{equation}
+\section{Finding the primary vertex and the beam center}
+In the azimuthal plane, the primary vertex position $(v_x, v_y)$ can be estimated by solving the least-squares system $y_0^{(i)} = -m^{(i)}v_x + v_y$ for $i=1...N$ zero-field tracks, where $y_0 = y(x=0)$ and $m$ is the track slope $\tan(\phi)$. In matrix-vector form, this is $y = X\beta + \epsilon$ where
+\begin{equation} \label{eq:vxy}
+y = 
+ \begin{pmatrix}
+ y_0^{(1)}\\
+ y_0^{(2)}\\
+ \vdots \\
+ y_0^{(N)}\\
+ \end{pmatrix},
+ \qquad
+X =
+ \begin{pmatrix}
+  -m^{(1)}  & 1\\
+  -m^{(2)}  & 1\\
+  \vdots  & \vdots \\
+  -m^{(N)}  & 1
+ \end{pmatrix},
+ \qquad
+\beta = 
+ \begin{pmatrix}
+ v_x\\
+ v_y
+ \end{pmatrix}.
+\end{equation}
+Similarly, for the $z$-vertex we use
+\begin{equation} \label{eq:vrz}
+y = 
+ \begin{pmatrix}
+ z_0^{(1)}\\
+ z_0^{(2)}\\
+ \vdots \\
+ z_0^{(N)}\\
+ \end{pmatrix},
+ \qquad
+X =
+ \begin{pmatrix}
+  -c^{(1)}  & 1\\
+  -c^{(2)}  & 1\\
+  \vdots  & \vdots \\
+  -c^{(N)}  & 1
+ \end{pmatrix},
+ \qquad
+\beta = 
+ \begin{pmatrix}
+ v_r\\
+ v_z
+ \end{pmatrix}.
+\end{equation}
+Since this setup is mathematically identical to that described in section \ref{sec:lsq}, the primary vertex is found by fitting a set of straight-line tracks in one arm or both arms using equation \ref{eq:betahat}.
+
+To date, the error on the tracks has not been propagated into the vertex fit. Each track was given an equal (and somewhat arbitrary) error of $\sigma^2 = 0.01$. There is room for improvement here. It is unclear how much difference it would make.
+
+Once the vertex position $(v_x, v_y)$ has been found for many events, it can be histogrammed as shown in figure xxx. A measure of central tendency can then be used to estimate the beam center. For this analysis, the median was used in preference to the mean due to its reduced sensitivity to outliers.
+
+For the VTX self-alignment procedure, the beam center was estimated in this way at first iteration, and then fixed for the remainder of the procedure (even though the detector is misaligned). In every single production run, the same beam center position was used. This turned out to be a critical requirement for convergence of the self-alignment procedure, compared to changing the beam center for every production. 
+
+\subsection{Computing the DCA}
+Each track's distance of closest approach (DCA) to the primary vertex is defined as
+% \begin{equation}
+% \end{equation}
+
+\section{VTX Self-alignment workflow: how to do it}
+The self-alignment procedure begins with running a zero-field production over a PRDF segment. The output is then filtered in a preprocessing step before alignment. One or more alignment steps are then carried out iteratively. The results from each alignment step are then plotted for analysis.
+
+\subsection{Reconstructing raw data}
+There are scripts and production macros located in \texttt{vtx-align/production/zerofield} written by Darren McGlinchey to prepare jobs for the condor batch system at RCF. Darren has also prepared a useful README file in the production subdirectories. The reconstruction output is a set of DST files that are then condensed further to TTrees using the Fun4All module located in \texttt{vtx-align/anavtxcluster}. As a final step of the production phase, the TTrees output from \texttt{anavtxcluster} are merged using ROOT's \texttt{hadd} tool.
+
 \subsection{Filtering production output}
-\section{Millepede interface}
+The preprocessing of the merged production output trees is carried out by \texttt{FilterData.C}. This fits the tracks and locates a vertex, enabling a loose rejection of outlier events. In addition, a loose cut is placed on residual values so that extreme outliers from bad fits are not fed to Millepede.
+
+\subsection{Mille interface: local and global fits}
+The track fit and residual data is given to pede through the Mille class. The VTX interface to \texttt{Mille::mille()} is implemented in \texttt{MilleFunctions.h}. Out of the whole process, this is probably the piece with the steepest learning curve. The manual tends to describe the interface in full pedantic generality, and it can be a bit difficult to specify the discussions there to a concrete application.
+
+An SvxGeoTrack serves as a ``local fit object'' in Millepede terminology. Two entries are made for each hit (one per residual) by a call to \texttt{Mille::mille()}, and the entries are grouped for one track using \texttt{Mille::end()}.
+
+For each VTX hit, there is a residual in $\Delta s \equiv r\Delta\phi$ and $\Delta z$. Mille takes this residual, along with a set of local and global derivatives. Local derivatives are used by pede to do its own track fits during the optimization procedure. The local derivatives in the transverse plane (corresponding to $\Delta s$) and in the $r$-$z$ plane (corresponding to $\Delta z$) are the derivatives of equations \ref{eq:zrfit} and \ref{eq:yxfit} with respect to their parameters. Since those equations are linear in their parameters (and also their independent variables, for that matter), the derivatives for a track as described in section \ref{sec:fitdecomp} are simply
+\begin{equation} \label{eq:sderlc}
+\frac{\partial y'(x')}{\partial y_0'} = 1, \quad 
+\frac{\partial y'(x')}{\partial m'} = x' 
+\end{equation}
+and
+\begin{equation} \label{eq:zderlc}
+\frac{\partial z(x')}{\partial z_0} = 1, \quad 
+\frac{\partial z(x')}{\partial c} = x' 
+\end{equation}
+TODO: have Jin check over this.
+
+information about how it would change if the detector unit would move along a given coordinate. 
+
 \subsection{Constrained optimization}
-\subsection{Mille}
 \subsection{Pede}
 \section{Orienting the VTX with respect to the central arms}
 \section{Procedure followed for Run 14}
