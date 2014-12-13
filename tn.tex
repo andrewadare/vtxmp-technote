@@ -107,17 +107,20 @@ In equation \ref{eq:yxfit}, the primes indicate rotation of the track within the
 x'\\
 y'
 \end{pmatrix}
-=
-\begin{pmatrix}
-\cos \phi_{rot} & \sin \phi_{rot}\\
--\sin \phi_{rot} &  \cos \phi_{rot}
-\end{pmatrix}
+= R^{-1}
 \begin{pmatrix}
 x\\
 y
+\end{pmatrix}
+\end{equation}
+where $R$ is the standard rotation matrix
+\begin{equation} \label{eq:R}
+R \equiv
+\begin{pmatrix}
+\cos \phi_{rot} & -\sin \phi_{rot}\\
+\sin \phi_{rot} &  \cos \phi_{rot}
 \end{pmatrix}.
 \end{equation}
-
 $\phi_{rot}$ is simply estimated using the angle of the outermost VTX hit---it does not need to be perfect. After rotation, $x' \approx r$, and the intercept $y_0'$ and slope $m'$ are both small fit parameters. In the standard detector frame, the track angle $\phi$ is
 \begin{equation}
 \phi = \phi_{rot} + \tan^{-1} m'.
@@ -212,12 +215,12 @@ The azimuthal residuals are calculated as
 \begin{equation} \label{eq:ds}
 \Delta s = y_0' + m' x' - y_{meas}'
 \end{equation}
-where $y_{meas}'$ is the measured position of a hit in the rotated frame (see eq. \ref{eq:phirot}). Similarly,
+where $y_{meas}'$ is the measured position of a hit in the rotated frame (see eq. \ref{eq:phirot}). 
+
+Similarly,
 \begin{equation} \label{eq:dz}
-\Delta z = z_0 + cx' - z_{meas}'
+\Delta z = z_0 + cx' - z_{meas}'.
 \end{equation}
-
-
 
 \section{Finding the primary vertex and the beam center}
 In the azimuthal plane, the primary vertex position $(v_x, v_y)$ can be estimated by solving the least-squares system $y_0^{(i)} = -m^{(i)}v_x + v_y$ for $i=1...N$ zero-field tracks, where $y_0 = y(x=0)$ and $m$ is the track slope $\tan(\phi)$. In matrix-vector form, this is $y = X\beta + \epsilon$ where
@@ -277,9 +280,32 @@ Once the vertex position $(v_x, v_y)$ has been found for many events, it can be 
 For the VTX self-alignment procedure, the beam center was estimated in this way at first iteration, and then fixed for the remainder of the procedure (even though the detector is misaligned). In every single production run, the same beam center position was used. This turned out to be a critical requirement for convergence of the self-alignment procedure, compared to changing the beam center for every production. 
 
 \subsection{Computing the DCA}
-Each track's distance of closest approach (DCA) to the primary vertex is defined as
-% \begin{equation}
-% \end{equation}
+Once the primary vertex (or beam center) has been found, each track's distance of closest approach (DCA) can be computed. In the rotated $x$-$y$ coordinates, the impact parameter vector $b'$ is effectively a $\Delta s$ ``residual'' between the track projection and the rotated vertex position $(v_x', v_y')^T = R^{-1} (v_x, v_y)^T$:
+\begin{equation} \label{eq:ipxy}
+b' = 
+\begin{pmatrix}
+0 \\
+y_0' + m' v_x' - v_y'
+\end{pmatrix}
+\end{equation}
+This can be seen by comparing to equation \ref{eq:ds}. Defining the track normal vector as
+\begin{equation} \label{eq:nhat}
+\hat n = 
+\begin{pmatrix}
+\cos\left(\phi + \frac{\pi}{2}\right) \\
+\sin\left(\phi + \frac{\pi}{2}\right)
+\end{pmatrix}
+\end{equation}
+and using $b = R b'$, the DCA is 
+\begin{equation} \label{eq:dcaxy}
+DCA_{xy} = \hat n \cdot b.
+\end{equation}
+The $z$ direction is somewhat simpler:
+\begin{equation} \label{eq:dcaz}
+DCA_{z} = z_0 + c v_x' - v_z.
+\end{equation}
+
+
 
 \section{VTX Self-alignment workflow: how to do it}
 The self-alignment procedure begins with running a zero-field production over a PRDF segment. The output is then filtered in a preprocessing step before alignment. One or more alignment steps are then carried out iteratively. The results from each alignment step are then plotted for analysis.
