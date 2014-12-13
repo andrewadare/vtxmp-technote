@@ -209,9 +209,9 @@ TODO: put in expression for covariance of beta. Say a bit more about how the res
 \subsection{Residual definitions}
 The residuals are defined consistently throughout as 
 \begin{equation}\label{eq:resdef}
-\mathbf{x}_{\mathrm{proj}} - \mathbf{x}_{\mathrm{meas}}
+\mathbf{x}_{\mathrm{proj}} - \mathbf{x}_{\mathrm{meas}}.
 \end{equation}
-The azimuthal residuals are calculated as
+Specifically, the azimuthal residuals are calculated as
 \begin{equation} \label{eq:ds}
 \Delta s = y_0' + m' x' - y_{meas}'
 \end{equation}
@@ -331,9 +331,12 @@ and
 \frac{\partial z(x')}{\partial z_0} = 1, \quad 
 \frac{\partial z(x')}{\partial c} = x' 
 \end{equation}
-TODO: have Jin check over this.
 
-information about how it would change if the detector unit would move along a given coordinate. 
+The global derivatives express the degree of change in $\Delta s$ or $\Delta z$ if a detector unit is displaced along a given coordinate. For example, $\partial \Delta s / \partial x = -\sin \phi_{rot}$. 
+
+TODO: make a big table of the global derivatives listed in MilleFunctions.h.
+
+TODO: have Jin check over this.
 
 \subsection{Constrained optimization}
 \subsection{Pede}
