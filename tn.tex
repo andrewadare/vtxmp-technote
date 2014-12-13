@@ -1,10 +1,41 @@
 %!TEX program = xelatex
+\documentclass[12pt]{article}
+% \usepackage[margin=1.0in]{geometry}
+\usepackage{amsmath}
+\usepackage[colorlinks=true,urlcolor=blue]{hyperref}
+\usepackage{titlesec}
+\usepackage[usenames,dvipsnames,svgnames,table]{xcolor}
+\usepackage{ifxetex}
+\ifxetex
+\usepackage{mathspec}
+\usepackage{xunicode}
+\defaultfontfeatures{Mapping=tex-text}
+\defaultfontfeatures{Ligatures=TeX}
+% \setromanfont{Iowan Old Style Roman}
+\setsansfont{PT Sans}
+\setmathfont{XITS Math}
+\setmathrm{XITS Math}
+\setmonofont[]{Menlo}
+\else
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\fi
 
-\documentclass{article}
+% Section header formatting
+\titleformat{\section}
+  {\normalfont\sffamily\Large\bfseries\color{DarkSlateBlue}}
+  {\thesection}{1em}{}
+\titleformat{\subsection}
+  {\normalfont\sffamily\large\bfseries\color{SteelBlue}}
+  {\thesection}{1em}{}
 
-\title{Software alignment of PHENIX VTX detector using the Millepede II package}
-\author{Andrew Adare, Darren McGlinchey, Jin Huang}
-\date{\today}
+% Commands, aliases, etc
+\DeclareMathOperator*{\argmin}{argmin}
+
+\title{\sffamily\bfseries{Software alignment of PHENIX VTX detector using the Millepede II package}}
+\author{\sffamily{Andrew Adare, Darren McGlinchey, Jin Huang}}
+% \author{\fontspec{Helvetica Neue}{Andrew Adare, Darren McGlinchey, Jin Huang}}
+\date{\sffamily{\today}}
 \begin{document}
 \maketitle
 \section{Introduction}
@@ -20,10 +51,7 @@ This document describes how Millepede was used to align the VTX in Run 14, hopef
 The VTX has a roughly concentric cylindrical geometry. It consists of 4 barrel layers numbered 0-3, and divided into east and west halves or ``arms''. There are 10, 20, 16, and 24 ladders in layers 0-3. The ladders are divided equally between the two arms, so that e.g. W0 is a halflayer that contains ladders 0-4; E0, 5-9. For our purposes, a ladder is the finest geometric unit that is ever free to be repositioned.
 
 \subsection{\texttt{libsvxgeo}}
-Fortunately, the VTX geometry can be composed from nothing more than a bunch of rectangular volumes. The geometry model and manipulations are handled by the SvxTGeo class, which in turn leverages the geometry tools included by default with ROOT. This package resides in CVS at \texttt{offline/packages/svxgeo}, browsable at
-
-\medskip
-\verb|https://www.phenix.bnl.gov/viewvc/viewvc.cgi/phenix/offline/packages/svxgeo/|.
+Fortunately, the VTX geometry can be composed from nothing more than a bunch of rectangular volumes. The geometry model and manipulations are handled by the SvxTGeo class, which in turn leverages the geometry tools included by default with ROOT. This package resides in CVS at \href{https://www.phenix.bnl.gov/viewvc/viewvc.cgi/phenix/offline/packages/svxgeo}{\texttt{offline/\-packages/\-svxgeo}}.
 % \verb|https://git.racf.bnl.gov/phenix/cgit/vtx-align/vtx-align.git|.
 
 \medskip
@@ -37,10 +65,33 @@ In addition to SvxTGeo, there is an SvxProj class that can be used to simulate t
 \section{Fitting tracks in zero-field data}
 For self-alignment of the VTX, the PHENIX standalone tracking software is used for association of hits to common track stubs, and little else. Given a set of hits that have already been associated to a track in zero-field data, the task of finding the track parameters by fitting to 3 or 4 hits (plus a vertex or beamcenter position) is fairly simple and computationally fast.
 
-The tracks are fit separately in the azimuthal plane and in the radial-longitudinal plane.
+The tracks are fit separately in the azimuthal plane and in the radial-longitudinal plane. This involves constructing two simple linear functions:
+\begin{equation}\label{eq:zrfit}
+z(r) = z_0 + cr
+\end{equation}
+where $c = \cot \theta$, and
+\begin{equation}\label{eq:yxfit}
+y'(x') = y_0' + m' x'.
+\end{equation}
+In equation \ref{eq:yxfit}, the primes are introduced for the following reason. Ordinary least squares fitting requires that the errors be aligned with the dependent variable, but in the $x$-$y$ plane, the errors lie in the azimuthal direction. To rectify this, the track is simply rotated ``backwards'' about the $z$ axis by its approximate azimuthal angle $\phi_{rot} = -\phi$ such that it points along the $x$ axis. $\phi_{rot}$ is simply estimated using the angle of the outermost VTX hit---it does not need to be perfect. After rotation, the intercept $y_0'$ and slope $m'$ are both small, and $x' \approx r$.
 
-%% Pick up here
-
+ For each track, the data consists of a set of points $\{x_i,y_i\}_{i=1}^N$ where $(x_i \to r_i, y_i \to z_i)$ in equation \ref{eq:zrfit}, and $(x_i \to x'_i, y_i \to y'_i)$ in equation \ref{eq:yxfit}. $N$ is very small here; typical dimensions range from 3-5. There are several ways to do these simple straight-line fits, but here, we use the method of maximum likelihood assuming a multivariate Gaussian model with a covariance matrix $\Sigma$ storing the measurement resolutions. This amounts to solving a generalized least squares (GLS) problem
+ \begin{equation}\label{eq:gls}
+ \hat\beta = \argmin_{\beta} \, (y - \beta x)^T \Sigma^{-1} (y - \beta x)
+ \end{equation}
+ for the slope and intercept parameters represented as a 2-vector $\beta$. The solution is expressed in terms of the normal equations obtained by differentiating the right side of equation \ref{eq:gls} with respect to $\beta$ and setting to zero:
+ \begin{equation}\label{eq:normal}
+ \hat\beta = (X^T \Sigma^{-1} X)^{-1} X^T \Sigma^{-1} y
+ \end{equation}
+This can be computed efficiently using matrix factorizations such LU, QR, or SVD. The latter is used here because it can provide a covariance matrix of uncertainties with the solution (although this isn't currently being used for anything.) Since $N$ is so small, there is no significant computational penalty to using the SVD versus simpler factorizations. The matrix inverse in equation \ref{eq:normal} is tackled using the SVD as follows:
+\begin{equation}\label{eq:svd}
+A \equiv X^T \Sigma^{-1} X = U S V^T \to A^{-1} = V S^{\dagger} U^{T}
+\end{equation}
+so that 
+\begin{equation}\label{eq:betahat}
+\hat\beta = V S^{\dagger} U^{T} X^T \Sigma^{-1} y.
+\end{equation}
+The $z$-$r$ fit will be described first, since it is slightly simpler.
 \subsection{Residual definitions}
 Mention hit resolutions here.
 \section{Finding the primary vertex and the beam center}
