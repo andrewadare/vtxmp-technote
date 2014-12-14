@@ -288,15 +288,15 @@ b' =
 y_0' + m' v_x' - v_y'
 \end{pmatrix}
 \end{equation}
-This can be seen by comparing to equation \ref{eq:ds}. Defining the track normal vector as
+This can be seen by comparing to equation \ref{eq:ds}. Using the track unit normal vector $\hat n$
 \begin{equation} \label{eq:nhat}
 \hat n = 
 \begin{pmatrix}
-\cos\left(\phi + \frac{\pi}{2}\right) \\
-\sin\left(\phi + \frac{\pi}{2}\right)
-\end{pmatrix}
+-\sin \phi \\
+\cos \phi
+\end{pmatrix},
 \end{equation}
-and using $b = R b'$, the DCA is 
+and the unrotated impact parameter vector $b = R b'$, their inner product defines the $x$-$y$ DCA as a signed scalar quantity: 
 \begin{equation} \label{eq:dcaxy}
 DCA_{xy} = \hat n \cdot b.
 \end{equation}
@@ -304,7 +304,7 @@ The $z$ direction is somewhat simpler:
 \begin{equation} \label{eq:dcaz}
 DCA_{z} = z_0 + c v_x' - v_z.
 \end{equation}
-
+Note that this definition of $DCA_{xy}$ does not exactly coincide with the standard PHENIX definition of \texttt{dca2d} (track charge is included in the latter). In zero-field data, $DCA_{xy}$ is broader than the \texttt{dca2d} computed in field-on reconstruction by a factor of three or more. This is because the magnetic field sweeps away very soft particles, reducing effects from scattering and background, and because plotting differentially in $p_T$ in field-on data shows that \texttt{dca2d} becomes narrower by 50\% or more as $p_T$ is increased. 
 
 
 \section{VTX self-alignment workflow: how to do it}
@@ -333,7 +333,7 @@ and
 \end{equation}
 
 The global derivatives express the degree of change in $\Delta s$ or $\Delta z$ if a detector unit is displaced along a given coordinate. For example, $\partial \Delta s / \partial x = -\sin \phi_{rot}$. 
-\begin{table}[htb!] \label{tab:dergl}
+\begin{table}[htb!]
 \centering
 \begin{tabular}{c | c | c }
  & $\Delta s$ & $\Delta z$ \\
@@ -349,23 +349,48 @@ roll & 1 & 0 \\
 \hline
 \end{tabular}
 \caption{Global derivatives of azimuthal and longitudinal residuals with respect to various coordinates.}
+\label{tab:dergl}
 \end{table}
 The global derivatives available in \texttt{MilleFunctions.h} are listed in table \ref{tab:dergl}. The expressions for some global derivatives are self-evident; for others, a fair bit of drawing diagrams, trigonometric manipulation, and some trial and error were involved (especially to get the signs right).
 
-\subsection{Global parameter labels}
-Millepede requires that a unique label be assigned to a triplet of the following items:
+\subsection{Global parameters and labels} \label{sec:labels}
+Millepede requires that a unique label be assigned to a triplet consisting of one item from each of the following categories:
 \begin{enumerate}
   \item A detector unit (arm, ladder, or halflayer)
   \item A residual direction ($\Delta s$ or $\Delta z$)
   \item An alignment coordinate (any variable in the first column of table \ref{tab:dergl}).
 \end{enumerate}
-The bidirectional mapping between global parameter labels and these triplets is implemented in \texttt{ParameterDefs.h}.
+The bidirectional mapping between global parameter labels and these triplets is implemented in \texttt{ParameterDefs.h}. Not all combinations are useful, or supported by the software. In particluar, the pitch, yaw, and roll rotations are currently implemented for arm units only (but there is no reason these rotations could not be implemented for ladders or halflayers in the future.) A list of labels provided to Millepede must represent a linearly-independent set; otherwise, Millepede will report a rank deficiency after attempting to solve an underdetermined linear system. 
+
+% For example, trying to align ladders in the set $\{x, y, s, r\}$ will not work because the $\{x, y\}$ and $\{s, r\}$ sets are linear combinations of one another.
 
 \subsection{Constrained optimization}
+In the case of the VTX alignment, the number of global parameters ranges from just a handful (for example, three arm rotations $\times$ two arms), to several hundred (for example, ladder-by-ladder alignment in several coordinates). Alignment with a large number of parameters is no problem for Millepede computationally; it has been used successfully to optimize $10^5$ global parameters in just a few hours. 
+
+However, the freedom afforded by a model with many parameters leads to overfitting, which is the tendency for some parameters to take on excessively large values. Overfitting is a general problem arising from attempts to fit a model that is too flexible for the data at hand. Such a model describes the current dataset very well (as measured by $\chi^2$), but generalizes to other similar datasets very poorly. (As an extreme illustration, imagine a 20th-order polynomial fit to a few samples from a smooth distribution.)
+
+The solution is to reduce the effective number of degrees of freedom, either by simplifying the model itself (cutting back free parameters) or by adding external information about the solution. For our case, it is optimal to allow for alignment along all relevant coordinates, so the latter is desirable.
+
+Millepede provides two main ways to constrain the solution. The first is direct regularization using a so-called ``presigma'' parameter, and the second is the ability to fix the sum of an arbitrary list of parameters. Both were used for the Run 14 VTX alignment. 
+
+A presigma of 0.01 was applied to a few ladders with particularly low acceptance/efficiency due to bad electronics. The presigma settings are slightly unintuitive: a smaller value leads to stronger regularization, but a value of zero disables regularization. Any negative value fixes the parameter. So effectively, a very small positive presigma setting has the same effect as a negative value.
+
+Sum constraints are used to fix the average position of a group of detector elements such that their total translation, rotation, or shear is a constant value (usually zero).
+
+Constraint information can be passed to pede in either the steering text file or in one or more dedicated constraint text files. The latter was used for the VTX. The functions to write the constraint file are found in \texttt{ConstraintBuilder.h}. The formatting is simply a \texttt{Parameter} keyword indicating a new block of global parameters, followed by three columns: the parameter label (see section \ref{sec:labels}), a starting value relative to the current position (always zero in Run 14), and a presigma setting.
+
+For arm alignment, constraints were found to be unnecessary. In \texttt{ConstraintBuilder.h}, there are separate functions to write ladder or halflayer constraints. \texttt{VtxAlign.C} dispatches to one of these functions depending on the \texttt{alignMode} parameter. To modify the existing constraints for a given parameter, there is currently no formal interface; the function bodies were modified directly to change the resulting text files. This was flexible and simple for prototyping and exploration, but there is room for improvement if a more ``proper'' interface is desired.
+
+One downside of applying sum constraints can be illustrated with a problem encountered during the Run 14 alignment. If large corrections are optimal for a subset of the detector units, the remaining units must compensate by absorbing the equal and opposite motion. Moreover, the burden tends to fall very nonuniformly on the more weakly constrained units. For example, during alignment of the ladder radial positions, an entire halflayer (B0E) was brought inwards by several hundred microns. To compensate, a partially-dead edge ladder in B3 was pushed outwards by several mm. That ladder was subsequently recovered to its initial position by hand.
+
+In retrospect, it would have been best to apply the radial constraint differently in this situation: instead of forcing the change of radial ladder positions to sum to zero, the outermost layer, B3, could have been fixed. This would allow the innermost halflayer to make a large radial change without such drastic side-effects in the outer ladders. To correct for distortions, a second alignment pass could be run with sum constraints, once the net radial changes are small enough.
+
+
+
 \subsection{Pede}
 \section{Orienting the VTX with respect to the central arms}
 \section{Procedure followed for Run 14}
-\begin{table}[htb!] \label{tab:history}
+\begin{table}[htb!]
 \centering
 \begin{tabular}{c | c | c | c | c | c | c}
 Geom ID & Alias & Description & \multicolumn{2}{c}{$DCA_{xy}$ E [$\mu$m]} 
@@ -390,8 +415,14 @@ Geom ID & Alias & Description & \multicolumn{2}{c}{$DCA_{xy}$ E [$\mu$m]}
 \hline
 \end{tabular}
 \caption{History of alignment steps for Run 14.}
+\label{tab:history}
 \end{table}
 
 \section{Recommendations}
-\section{Appendix A: global derivatives}
+\begin{itemize}
+  \item Use GenerateEvents.C to simulate data with specific misalignments. Then tune VtxAlign.C to correct the misalignment properly. Using the ``sim'' option in VtxAlign.C reduces the sigma parameter passed to Mille so that the $\chi^2/NDF$ is near one.
+  \item If pede complains that the $\chi^2$ is too large or too small, its value can be changed by tuning the sigma scaling factor in \texttt{MilleVtx()}.
+  \item If pede complains about a rank defect, check that the constraints have not violated any linear independence requirements. 
+\end{itemize}
+\section{Appendix A: Links to presentations}
 \end{document}
