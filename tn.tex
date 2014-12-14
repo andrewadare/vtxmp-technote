@@ -41,7 +41,7 @@
 \begin{document}
 \maketitle
 \section{Introduction}
-The PHENIX VTX detector is designed to locate primary and secondary vertices with a precision of xxx um as well as significantly improve tracking performance in conjunction with other detectors. A software model of the VTX sensors is required during track reconstruction from raw hits. This geometry modeled in the software must reflect the actual position of the VTX sensor planes to within a few 10s of microns in order to achieve design resolution in quantities such as the distance of closest approach (DCA) between tracks and the primary vertex. Direct measurements of the sensor planes through surveys can help, but the most precise method for obtaining the correct detector geometry is to use the reconstructed tracks themselves---or more precisely, the distance between track projections and measured hits on a sensor plane. These distances are referred to as ``pulls'' or residuals.
+The PHENIX VTX detector is designed to locate primary and secondary vertices with a precision of xxx um as well as significantly improve tracking performance in conjunction with other detectors. A software model of the VTX sensors is required during track reconstruction from raw hits. This geometry modeled in the software must reflect the actual position of the VTX sensor planes to within a few tens of microns in order to achieve design resolution in quantities such as the distance of closest approach (DCA) between tracks and the primary vertex. Direct measurements of the sensor planes through surveys can help, but the most precise method for obtaining the correct detector geometry is to use the reconstructed tracks themselves---or more precisely, the distance between track projections and measured hits on a sensor plane. These distances are referred to as ``pulls'' or residuals.
 
 A traditional method of aligning the detector is to histogram the residuals, then directly adjust the position of the detector units such that the residual distributions are centered at zero, with the smallest variance possible. This method handles each detector unit independently, and as such, there is no explicit notion of a global optimum. If one sensor is only partially functional, it is still relocated with equal weight as a fully operational sensor, despite its potentially larger uncertainty or bias. In addition, the sensitive direction the sensors is highly anisotropic in space. For example, the VTX sensors are sensitive primarily in the azimuthal and longitudinal directions. This means that there are strong constraints on certain coordinates and weak constraints in others, depending on sensor and track positions and orientations. The traditional method does not provide a way to properly take this into account.
 
@@ -307,7 +307,7 @@ DCA_{z} = z_0 + c v_x' - v_z.
 
 
 
-\section{VTX Self-alignment workflow: how to do it}
+\section{VTX self-alignment workflow: how to do it}
 The self-alignment procedure begins with running a zero-field production over a PRDF segment. The output is then filtered in a preprocessing step before alignment. One or more alignment steps are then carried out iteratively. The results from each alignment step are then plotted for analysis.
 
 \subsection{Reconstructing raw data}
@@ -319,9 +319,9 @@ The preprocessing of the merged production output trees is carried out by \textt
 \subsection{Mille interface: local and global fits}
 The track fit and residual data is given to pede through the Mille class. The VTX interface to \texttt{Mille::mille()} is implemented in \texttt{MilleFunctions.h}. Out of the whole process, this is probably the piece with the steepest learning curve. The manual tends to describe the interface in full pedantic generality, and it can be a bit difficult to specify the discussions there to a concrete application.
 
-An SvxGeoTrack serves as a ``local fit object'' in Millepede terminology. Two entries are made for each hit (one per residual) by a call to \texttt{Mille::mille()}, and the entries are grouped for one track using \texttt{Mille::end()}.
+An SvxGeoTrack serves as a ``local fit object'' in Millepede terminology. Two entries are made for each hit (one per residual) by a call to \texttt{Mille::mille()}, and the grouping of entries by track is delimited using \texttt{Mille::end()}.
 
-For each VTX hit, there is a residual in $\Delta s \equiv r\Delta\phi$ and $\Delta z$. Mille takes this residual, along with a set of local and global derivatives. Local derivatives are used by pede to do its own track fits during the optimization procedure. The local derivatives in the transverse plane (corresponding to $\Delta s$) and in the $r$-$z$ plane (corresponding to $\Delta z$) are the derivatives of equations \ref{eq:zrfit} and \ref{eq:yxfit} with respect to their parameters. Since those equations are linear in their parameters (and also their independent variables, for that matter), the derivatives for a track as described in section \ref{sec:fitdecomp} are simply
+For each VTX hit, there is a residual in $\Delta s \equiv r\Delta\phi$ and $\Delta z$. Mille takes this residual as an input, along with a set of local and global derivatives. Local derivatives are used by pede to do its own track fits during the optimization procedure. The local derivatives in the transverse plane (corresponding to $\Delta s$) and in the $r$-$z$ plane (corresponding to $\Delta z$) are the derivatives of equations \ref{eq:zrfit} and \ref{eq:yxfit} with respect to their parameters. Since those equations are linear in their parameters (and also their independent variables, for that matter), the derivatives for a track as described in section \ref{sec:fitdecomp} are simply
 \begin{equation} \label{eq:sderlc}
 \frac{\partial y'(x')}{\partial y_0'} = 1, \quad 
 \frac{\partial y'(x')}{\partial m'} = x' 
@@ -333,15 +333,65 @@ and
 \end{equation}
 
 The global derivatives express the degree of change in $\Delta s$ or $\Delta z$ if a detector unit is displaced along a given coordinate. For example, $\partial \Delta s / \partial x = -\sin \phi_{rot}$. 
+\begin{table}[htb!] \label{tab:dergl}
+\centering
+\begin{tabular}{c | c | c }
+ & $\Delta s$ & $\Delta z$ \\
+\hline
+$x$ & $-\sin \phi$ & $\cos \phi \cot \theta$ \\
+$y$ & $ \cos \phi$ & $\sin \phi \cot \theta$ \\
+$z$ & 0 & 1 \\
+$s$ & 1 & 0 \\
+$r$ & $\Delta s / r$ & $-\cot \theta$ \\
+pitch & $-z \cos \phi$ & $-y + z \sin \phi \cot \theta$ \\
+yaw & $-z \sin \phi$ & $x - z \cos \phi \cot \theta$ \\
+roll & 1 & 0 \\
+\hline
+\end{tabular}
+\caption{Global derivatives of azimuthal and longitudinal residuals with respect to various coordinates.}
+\end{table}
+The global derivatives available in \texttt{MilleFunctions.h} are listed in table \ref{tab:dergl}. The expressions for some global derivatives are self-evident; for others, a fair bit of drawing diagrams, trigonometric manipulation, and some trial and error were involved (especially to get the signs right).
 
-TODO: make a big table of the global derivatives listed in MilleFunctions.h.
-
-TODO: have Jin check over this.
+\subsection{Global parameter labels}
+Millepede requires that a unique label be assigned to a triplet of the following items:
+\begin{enumerate}
+  \item A detector unit (arm, ladder, or halflayer)
+  \item A residual direction ($\Delta s$ or $\Delta z$)
+  \item An alignment coordinate (any variable in the first column of table \ref{tab:dergl}).
+\end{enumerate}
+The bidirectional mapping between global parameter labels and these triplets is implemented in \texttt{ParameterDefs.h}.
 
 \subsection{Constrained optimization}
 \subsection{Pede}
 \section{Orienting the VTX with respect to the central arms}
 \section{Procedure followed for Run 14}
+\begin{table}[htb!] \label{tab:history}
+\centering
+\begin{tabular}{c | c | c | c | c | c | c}
+Geom ID & Alias & Description & \multicolumn{2}{c}{$DCA_{xy}$ E [$\mu$m]} 
+                              & \multicolumn{2}{|c}{$DCA_{xy}$ W [$\mu$m]} \\
+(prod-step) & (symlink) &     & $\mu$ & $\sigma$ & $\mu$ & $\sigma$\\
+\hline
+0-0 & hubert-mod & prod 0    & 63 & 293 & -21 & 261 \\
+0-1 & & arm $x,y,z$          & 15 & 281 & -12 & 261 \\
+1-0 & 0-1 & prod 1           & 10 & 280 &  -7 & 257 \\
+1-1 & & arm $x,y,z$          & 11 & 280 & -10 & 257 \\
+1-2 & & HL $x,y,z,s$         & -5 & 274 &   4 & 248 \\
+2-0 & 1-2 & prod 2           & -4 & 273 &   9 & 248 \\
+2-1 & & HL $x,y,z,s$         & -7 & 273 &   2 & 248 \\
+2-2 & & L $x,y,z,s$          & -1 & 272 &  -3 & 247 \\
+3-0 & 2-2-mod & prod 3       & -1 & 274 &  -2 & 247 \\
+3-1 & & L $x,y,z,s$          & -1 & 274 &   0 & 247 \\
+\colorbox{yellow}{3-2} & & arm $P,Y,R$          &  4 & 272 &  -2 & 244 \\
+\colorbox{yellow}{4-0} & 3-2 & prod 4           &  4 & 270 &  -1 & 241 \\
+4-1 & & L $s,r$              & -2 & 268 &   0 & 242 \\
+5-0 & 4-1 & prod             & -2 & 267 &  -1 & 242 \\
+5-1 & & arm $x,y,z$          &  1 & 266 &  -1 & 242 \\
+\hline
+\end{tabular}
+\caption{History of alignment steps for Run 14.}
+\end{table}
+
 \section{Recommendations}
 \section{Appendix A: global derivatives}
 \end{document}
