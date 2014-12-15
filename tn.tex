@@ -1,10 +1,12 @@
 %!TEX program = xelatex
 \documentclass[12pt]{article}
-% \usepackage[margin=1.0in]{geometry}
 \usepackage{amsmath}
 \usepackage[usenames,dvipsnames,svgnames,table]{xcolor}
 \usepackage[colorlinks=true,urlcolor=blue,linkcolor=blue]{hyperref}
+\usepackage{graphicx}
 \usepackage{titlesec}
+\usepackage[raggedright]{sidecap}
+\sidecaptionvpos{figure}{c}
 \usepackage{ifxetex}
 \ifxetex
 \usepackage{mathspec}
@@ -30,9 +32,8 @@
   {\thesubsection}{1em}{}
 
 % Commands, aliases, etc
+\graphicspath{{./figs/}{./}}
 \DeclareMathOperator*{\argmin}{argmin}
-
-% \setcounter{secnumdepth}{3}
 
 \title{\sffamily\bfseries{Software alignment of PHENIX VTX detector using the Millepede II package}}
 \author{\sffamily{Andrew Adare, Darren McGlinchey, Jin Huang, Jamie Nagle}}
@@ -45,17 +46,37 @@ The PHENIX VTX detector is designed to locate primary and secondary vertices wit
 
 A traditional method of aligning the detector is to histogram the residuals, then directly adjust the position of the detector units such that the residual distributions are centered at zero, with the smallest variance possible. This method handles each detector unit independently, and as such, there is no explicit notion of a global optimum. If one sensor is only partially functional, it is still relocated with equal weight as a fully operational sensor, despite its potentially larger uncertainty or bias. In addition, the sensitive direction the sensors is highly anisotropic in space. For example, the VTX sensors are sensitive primarily in the azimuthal and longitudinal directions. This means that there are strong constraints on certain coordinates and weak constraints in others, depending on sensor and track positions and orientations. The traditional method does not provide a way to properly take this into account.
 
-The Millepede package was designed to alleviate these problems by minimizing a global objective rather than handling the detector sub-units in isolation. It works by collecting a large number of residuals, each associated with their own ``local fit object'' (i.e. a track), then trying out various combinations of global parameters (i.e. sensor positions) to find the configuration that minimizes the total overall (squared) distance between the track projections and measured hits. Like many optimization packages, there are a few qualifications: (a) Millepede can only provide a local minimum, and (b) a correct gradient of the objective with respect to each parameter must be provided by the user. In complicated geometries, the latter point can be one of the most difficult parts about getting Millepede to work right.
+The Millepede package was designed to alleviate these problems by minimizing a global objective rather than handling the detector sub-units in isolation. It works by collecting a large number of residuals, each associated with their own ``local fit object'' (i.e. a track), then trying out various combinations of global parameters (i.e. sensor positions) to find the configuration that minimizes the total overall (squared) distance between the track projections and measured hits. Like many optimization packages, there are a few qualifications: (a) Millepede can only provide a local minimum, and (b) a correct gradient of the objective with respect to each parameter must be provided by the user. In complicated geometries, the latter point can be one of the more difficult parts about getting Millepede to work right.
 
-This document describes how Millepede was used to align the VTX in Run 14, hopefully in sufficient detail that the next person given this job can get through it without too much trouble.
+This document describes how Millepede was used to self-align the VTX in Run 14, hopefully in sufficient detail that the next person can get through it without too much trouble.
+
+\begin{figure}[tb]
+  \begin{center}
+    \includegraphics[width=0.45\textwidth]{viewer}
+    \quad
+    \includegraphics[width=0.5\textwidth]{vtx-xy}
+  \end{center}
+  \caption{Left: image from 3D viewer in \texttt{svxgeo/examples/DrawVtx.C}. Right: end-on view with ladder and arm labeling scheme.}
+  \label{fig:vtx}
+\end{figure}
 
 \section{VTX geometry and alignment parameters}
-The VTX has a roughly concentric cylindrical geometry. It consists of 4 barrel layers numbered 0-3, and divided into east and west halves or ``arms''. There are 10, 20, 16, and 24 ladders in layers 0-3. The ladders are divided equally between the two arms, so that e.g. W0 is a halflayer that contains ladders 0-4; E0, 5-9. For our purposes, a ladder is the finest geometric unit that is ever free to be repositioned.
+The VTX has a roughly concentric cylindrical geometry, as shown in figure~\ref{fig:vtx}. It consists of 4 barrel layers numbered 0-3, and divided into east and west halves or ``arms''. There are $10+20+16+24 = 70$ ladders in layers 0-3. The ladders are divided equally between the two arms, so that e.g. W0 is a halflayer that contains ladders 0-4; E0, 5-9. For our purposes, a ladder is the finest individual geometric unit.
+
+The ladders are configured such that they overlap slightly as encountered on a radial path outward from the beamline. This is an important feature for self-alignment of the VTX, because the overlaps lead to topological connections between different azimuthal regions. Without coupling between ladders in the azimuthal direction, ladder-by-ladder self-alignment would be very difficult or impossible. 
+\vspace{-2cm}
+\begin{SCfigure}[50][htb]
+\centering
+\includegraphics[width=0.6\textwidth]{topology}
+\caption{Topology of connected ladders from $10^4$ simulated tracks. The lines are created between ladders that are connected by a straight-line track originating from $(v_x, v_y) = (0,0)$, and the transparency of the lines represents the number of tracks making the connection.}
+\label{fig:topo}
+\end{SCfigure}
+\vspace{-2cm}
+A diagram of this connectivity is shown in figure~\ref{fig:topo}, where a distinct web-like connection pattern is clearly visible. Without overlaps, a spoke-like pattern would be visible instead.
 
 \subsection{\texttt{libsvxgeo}} \label{sec:svxgeo}
 Fortunately, the VTX geometry can be composed from nothing more than a bunch of rectangular volumes. The geometry model and manipulations are handled by the SvxTGeo class, which in turn leverages the geometry tools included by default with ROOT. This package resides in CVS at \href{https://www.phenix.bnl.gov/viewvc/viewvc.cgi/phenix/offline/packages/svxgeo}{\texttt{offline/\-packages/\-svxgeo}}.
 
-\medskip
 As with other detector geometry software packages like GEANT, the geometry is conceptually modeled using a tree data structure, with the top node representing a reference frame like the experiment hall. Detector elements are grouped or nested within larger units, and their positions and orientations need only be specified with respect to their parent node. Position of any element in the global reference frame can thus be computed at any time by a composition of translations and rotations up the node tree. This is all handled by library functions in ROOT's geometry classes.
 
 The node tree in SvxTGeo is particularly shallow: under the top volume, there are only sensors. This is also more or less the case in the VTX PISA framework.
@@ -66,12 +87,12 @@ In addition to SvxTGeo, there is an SvxProj class that can be used to simulate t
 \section{Millepede II}
 The \href{http://www.desy.de/~kleinwrt/MP2/doc/html/index.html}{Millepede II} package version 04-01-01 was used for Run 14. It was compiled using GCC 4.6 on Mac OS X 10.9. (Note that Clang/LLVM does not natively support Fortran compilation at this time.)
 
-Millepede II consists of two components, \texttt{mille} and \texttt{pede}. The first is responsible for collecting alignment data and writing it to a binary file for input to \texttt{pede}. It is available as a C++ class, and is packaged with the \texttt{vtx-align} software for convenience (see section \ref{sec:vtxalign}). The second is a static executable accepting a configuration file name as a command-line argument.
+Millepede II consists of two components, \texttt{mille} and \texttt{pede}. The first is responsible for collecting alignment data and writing it to a binary file for input to \texttt{pede}. It is available as a C++ class, and is packaged with the \texttt{vtx-align} software for convenience (see section~\ref{sec:vtxalign}). The second is a static executable accepting a configuration file name as a command-line argument.
 
 \section{VTX alignment software} \label{sec:vtxalign}
 The \texttt{vtx-align} package is kept on the \href{https://git.racf.bnl.gov/phenix/cgit/vtx-align/vtx-align.git}{RCF Git repository}. There is some C++11 code scattered throughout, so ROOT 6 is required. 
 
-The only dependency is \texttt{libsvxgeo} (see section \ref{sec:svxgeo}) and a file called \texttt{UtilFns.h} used for plotting, i/o, and other generic tasks. This file is available at \href{https://github.com/andrewadare/utils.git}{the author's github site}. (TODO: I should probably just add this into vtx-align)
+The only dependency is \texttt{libsvxgeo} (see section~\ref{sec:svxgeo}) and a file called \texttt{UtilFns.h} used for plotting, i/o, and other generic tasks. This file is available at \href{https://github.com/andrewadare/utils.git}{the author's github site}. (TODO: I should probably just add this into vtx-align)
 
 \subsection{Software layout}
 The code was deliberately designed to be as simple and flexible as possible: all reusable code is encapsulated in functions residing in various header files without namespace qualification. Outside of function signatures, there are very few global variables. During execution, the majority of the mutable program state is held in a single object (\texttt{geoEvents}), which is simply a nested STL vector of \texttt{SvxGeoTrack} objects. VtxIO.h contains the code to go from a geoEvents object to TTree storage or vice versa.
@@ -93,7 +114,7 @@ The core script interfacing with \texttt{Mille} and \texttt{pede} is \texttt{Vtx
 \end{enumerate}
 This script is designed to be run iteratively, and the results are stored and plotted at each step to track progress.
 
-\section{Fitting tracks in zero-field data}
+\section{Fitting tracks in zero-field data} \label{sec:trackfit}
 For self-alignment of the VTX, the PHENIX standalone tracking software is used for association of hits to common track stubs, and little else. Given a set of hits that have already been associated to a track in zero-field data, the task of finding the track parameters by fitting to 3 or 4 hits (plus a vertex or beamcenter position) is simple and fast to compute.
 
 \subsection{Decomposition of fit into two planes} \label{sec:fitdecomp}
@@ -101,7 +122,7 @@ Each track is fit separately in the azimuthal plane and in the radial-longitudin
 \begin{equation} \label{eq:yxfit}
 y'(x') = y_0' + m' x'.
 \end{equation}
-In equation \ref{eq:yxfit}, the primes indicate rotation of the track within the detector coordinate system. They are introduced for the following reason: ordinary least squares fitting requires that the errors be parallel to the dependent coordinate axis, but in the $x$-$y$ plane, the resolution lies along the azimuthal direction (which, of course, is only aligned with $y$ at $\phi \approx 0$). To rectify this, the track is simply rotated ``backwards'' about the $z$ axis by its approximate azimuthal angle $\phi_{rot}$ such that it points along the $x$ axis. To be explicit,
+In equation~\ref{eq:yxfit}, the primes indicate rotation of the track within the detector coordinate system. They are introduced for the following reason: ordinary least squares fitting requires that the errors be parallel to the dependent coordinate axis, but in the $x$-$y$ plane, the resolution lies along the azimuthal direction (which, of course, is only aligned with $y$ at $\phi \approx 0$). To rectify this, the track is simply rotated ``backwards'' about the $z$ axis by its approximate azimuthal angle $\phi_{rot}$ such that it points along the $x$ axis. To be explicit,
 \begin{equation} \label{eq:phirot}
 \begin{pmatrix}
 x'\\
@@ -126,7 +147,7 @@ $\phi_{rot}$ is simply estimated using the angle of the outermost VTX hit---it d
 \phi = \phi_{rot} + \tan^{-1} m'.
 \end{equation}
 
-The second fit equation for the $z$ coordinate also defines $x'$ as the independent variable (rather than $r$) in order to be strictly orthogonal to equation \ref{eq:yxfit}.
+The second fit equation for the $z$ coordinate also defines $x'$ as the independent variable (rather than $r$) in order to be strictly orthogonal to equation~\ref{eq:yxfit}.
 \begin{equation} \label{eq:zrfit}
 z(x') = z_0 + c x'
 \end{equation}
@@ -134,12 +155,12 @@ where $c = \cot \theta$.
 
 
 \subsection{Fit model and solution method} \label{sec:lsq}
- For each track, the data consists of a set of points $\{x_i,y_i\}_{i=1}^N$ where $(x_i \to r_i, y_i \to z_i)$ in equation \ref{eq:zrfit}, and $(x_i \to x'_i, y_i \to y'_i)$ in equation \ref{eq:yxfit}. $N$ is very small here; typical dimensions range from 3-5. There are several ways to do these simple straight-line fits, but here, we use the method of maximum likelihood assuming a multivariate Gaussian model with a covariance matrix $\Sigma$ storing the measurement resolutions. This amounts to solving a generalized least squares (GLS) problem for the linear system $y = X\beta + \epsilon$:
+ For each track, the data consists of a set of points $\{x_i,y_i\}_{i=1}^N$ where $(x_i \to r_i, y_i \to z_i)$ in equation~\ref{eq:zrfit}, and $(x_i \to x'_i, y_i \to y'_i)$ in equation~\ref{eq:yxfit}. $N$ is very small here; typical dimensions range from 3-5. There are several ways to do these simple straight-line fits, but here, we use the method of maximum likelihood assuming a multivariate Gaussian model with a covariance matrix $\Sigma$ storing the measurement resolutions. This amounts to solving a generalized least squares (GLS) problem for the linear system $y = X\beta + \epsilon$:
  \begin{equation}\label{eq:gls}
  \hat\beta = \argmin_{\beta} \, (y - X\beta)^T \Sigma^{-1} (y - X\beta).
  \end{equation}
 % $X$ is a matrix whose first column is ones and whose second column is $\{x_i\}_{i=1}^N$, $y$ is an $N$-vector of dependent variables ($z$ or $y'$), and $\beta$ is a 2-vector of (intercept, slope) parameters $(z_0, c)^T$ or $(y_0',m')^T$. 
-In the $r$-$z$ plane (equation \ref{eq:zrfit}), these variables are
+In the $r$-$z$ plane (equation~\ref{eq:zrfit}), these variables are
 \begin{equation} \label{eq:rzmat}
 y = 
  \begin{pmatrix}
@@ -163,7 +184,7 @@ X =
  c
  \end{pmatrix}
 \end{equation}
-and in the azimuthal plane (equation \ref{eq:yxfit}), they are
+and in the azimuthal plane (equation~\ref{eq:yxfit}), they are
 \begin{equation} \label{eq:xymat}
 y = 
  \begin{pmatrix}
@@ -190,11 +211,11 @@ X =
 
 
 
-The maximum likelihood solution results from differentiating the right side of equation \ref{eq:gls} with respect to $\beta$ and setting to zero to obtain the normal equations for least squares:
+The maximum likelihood solution results from differentiating the right side of equation~\ref{eq:gls} with respect to $\beta$ and setting to zero to obtain the normal equations for least squares:
  \begin{equation}\label{eq:normal}
  \hat\beta = (X^T \Sigma^{-1} X)^{-1} X^T \Sigma^{-1} y.
  \end{equation}
-This can be computed efficiently using matrix factorizations such as LU, QR, or SVD. The latter is used here because it can provide a covariance matrix of uncertainties with the solution (although this isn't currently being used.) Since $N$ is so small, there is no significant computational penalty to using the SVD versus simpler factorizations. The matrix inversion in equation \ref{eq:normal} is tackled using the SVD as follows:
+This can be computed efficiently using matrix factorizations such as LU, QR, or SVD. The latter is used here because it can provide a covariance matrix of uncertainties with the solution (although this isn't currently being used.) Since $N$ is so small, there is no significant computational penalty to using the SVD versus simpler factorizations. The matrix inversion in equation~\ref{eq:normal} is tackled using the SVD as follows:
 \begin{equation}\label{eq:svd}
 A \equiv X^T \Sigma^{-1} X = U S V^T \to A^{-1} = V S^{\dagger} U^{T}
 \end{equation}
@@ -221,8 +242,19 @@ Similarly,
 \begin{equation} \label{eq:dz}
 \Delta z = z_0 + cx' - z_{meas}'.
 \end{equation}
+An example of the track residuals in B0 during one alignment stage is shown in figure
+\begin{figure}[htb]
+  \begin{center}
+    \includegraphics[width=\textwidth]{11vs12/cls0}
+  \end{center}
+  \caption{$\Delta s$ residuals for half-layer units in the east arm (top) and west arm (bottom) for layers 0-3 (left to right). The gray (green) distributions were filled before (after) halflayer alignment in $x,y$ and $s$. This alignment step led to the geometry labeled 1-2 in table~\ref{tab:history}.}
+  \label{fig:hlds}
+\end{figure}
 
-\section{Finding the primary vertex and the beam center}
+\section{Primary vertex, beam center, and DCA}
+Fortunately, the GLS technique discussed in section~\ref{sec:trackfit} can also be easily applied to efficiently estimate the primary vertex position. All that is needed is to set up the linear system in a similar way. This is described in section~\ref{sec:vertex}.
+
+\subsection{Fitting the primary vertex} \label{sec:vertex}
 In the azimuthal plane, the primary vertex position $(v_x, v_y)$ can be estimated by solving the least-squares system $y_0^{(i)} = -m^{(i)}v_x + v_y$ for $i=1...N$ zero-field tracks, where $y_0 = y(x=0)$ and $m$ is the track slope $\tan(\phi)$. In matrix-vector form, this is $y = X\beta + \epsilon$ where
 \begin{equation} \label{eq:vxy}
 y = 
@@ -271,11 +303,20 @@ X =
  v_z
  \end{pmatrix}.
 \end{equation}
-Since this setup is mathematically identical to that described in section \ref{sec:lsq}, the primary vertex is found by fitting a set of straight-line tracks in one arm or both arms using equation \ref{eq:betahat}.
+Since this setup is mathematically identical to that described in section~\ref{sec:lsq}, the primary vertex is found by fitting a set of straight-line tracks in one arm or both arms using equation~\ref{eq:betahat}.
 
 To date, the error on the tracks has not been propagated into the vertex fit. Each track was given an equal (and somewhat arbitrary) error of $\sigma^2 = 0.01$. There is room for improvement here. It is unclear how much difference it would make.
 
-Once the vertex position $(v_x, v_y)$ has been found for many events, it can be histogrammed as shown in figure xxx. A measure of central tendency can then be used to estimate the beam center. For this analysis, the median was used in preference to the mean due to its reduced sensitivity to outliers.
+\subsection{Beam center}
+\begin{figure}[htb]
+  \begin{center}
+    \includegraphics[width=\textwidth]{4/xy_vertex_0}
+  \end{center}
+  \caption{Primary vertex distribution in the transverse plane from a few hundred thousand peripheral zero-field Run 14 Au$+$Au collisions. Each vertex position was computed as described in section~\ref{sec:vertex}}.
+  \label{fig:xyvertex}
+\end{figure}
+
+Once the vertex position $(v_x, v_y)$ has been found for many events, it can be histogrammed as shown in figure~\ref{fig:xyvertex}. A measure of central tendency can then be used to estimate the beam center. For this analysis, the median was used in preference to the mean due to its reduced sensitivity to outliers.
 
 For the VTX self-alignment procedure, the beam center was estimated in this way at first iteration, and then fixed for the remainder of the procedure (even though the detector is misaligned). In every single production run, the same beam center position was used. This turned out to be a critical requirement for convergence of the self-alignment procedure, compared to changing the beam center for every production. 
 
@@ -288,7 +329,7 @@ b' =
 y_0' + m' v_x' - v_y'
 \end{pmatrix}
 \end{equation}
-This can be seen by comparing to equation \ref{eq:ds}. Using the track unit normal vector $\hat n$
+This can be seen by comparing to equation~\ref{eq:ds}. Using the track unit normal vector $\hat n$
 \begin{equation} \label{eq:nhat}
 \hat n = 
 \begin{pmatrix}
@@ -306,22 +347,24 @@ DCA_{z} = z_0 + c v_x' - v_z.
 \end{equation}
 Note that this definition of $DCA_{xy}$ does not exactly coincide with the standard PHENIX definition of \texttt{dca2d} (track charge is included in the latter). In zero-field data, $DCA_{xy}$ is broader than the \texttt{dca2d} computed in field-on reconstruction by a factor of three or more. This is because the magnetic field sweeps away very soft particles, reducing effects from scattering and background, and because plotting differentially in $p_T$ in field-on data shows that \texttt{dca2d} becomes narrower by 50\% or more as $p_T$ is increased. 
 
+\begin{figure}[htb]
+  \begin{center}
+    \includegraphics[width=0.48\textwidth]{1/xydca_vs_phi_0}
+    \quad
+    \includegraphics[width=0.48\textwidth]{31vs32/xydca_vs_phi_1}
+  \end{center}
+  \caption{$DCA_{xy}$ vs. $\phi$ before and after halflayer and ladder alignment.}
+  \label{fig:dcavsphi}
+\end{figure}
+$DCA_{xy}$ vs. $\phi$ is shown in figure~\ref{fig:dcavsphi} before and after halflayer and ladder alignment steps were performed. Before halflayer alignment, a strong cosine pattern is visible, indicating a large-scale misalignment in the $x$ direction. One step of halflayer alignment corrected the majority of the misalignment, allowing progression to ladder-by-ladder alignment.
 
-\section{VTX self-alignment workflow: how to do it}
-The self-alignment procedure begins with running a zero-field production over a PRDF segment. The output is then filtered in a preprocessing step before alignment. One or more alignment steps are then carried out iteratively. The results from each alignment step are then plotted for analysis.
-
-\subsection{Reconstructing raw data}
-There are scripts and production macros located in \texttt{vtx-align/production/zerofield} written by Darren McGlinchey to prepare jobs for the condor batch system at RCF. Darren has also prepared a useful README file in the production subdirectories. The reconstruction output is a set of DST files that are then condensed further to TTrees using the Fun4All module located in \texttt{vtx-align/anavtxcluster}. As a final step of the production phase, the TTrees output from \texttt{anavtxcluster} are merged using ROOT's \texttt{hadd} tool.
-
-\subsection{Filtering production output}
-The preprocessing of the merged production output trees is carried out by \texttt{FilterData.C}. This fits the tracks and locates a vertex, enabling a loose rejection of outlier events. In addition, a loose cut is placed on residual values so that extreme outliers from bad fits are not fed to Millepede.
-
-\subsection{Mille interface: local and global fits}
+\section{Mille interface}
 The track fit and residual data is given to pede through the Mille class. The VTX interface to \texttt{Mille::mille()} is implemented in \texttt{MilleFunctions.h}. Out of the whole process, this is probably the piece with the steepest learning curve. The manual tends to describe the interface in full pedantic generality, and it can be a bit difficult to specify the discussions there to a concrete application.
 
+\subsection{Local and global fits}
 An SvxGeoTrack serves as a ``local fit object'' in Millepede terminology. Two entries are made for each hit (one per residual) by a call to \texttt{Mille::mille()}, and the grouping of entries by track is delimited using \texttt{Mille::end()}.
 
-For each VTX hit, there is a residual in $\Delta s \equiv r\Delta\phi$ and $\Delta z$. Mille takes this residual as an input, along with a set of local and global derivatives. Local derivatives are used by pede to do its own track fits during the optimization procedure. The local derivatives in the transverse plane (corresponding to $\Delta s$) and in the $r$-$z$ plane (corresponding to $\Delta z$) are the derivatives of equations \ref{eq:zrfit} and \ref{eq:yxfit} with respect to their parameters. Since those equations are linear in their parameters (and also their independent variables, for that matter), the derivatives for a track as described in section \ref{sec:fitdecomp} are simply
+For each VTX hit, there is a residual in $\Delta s \equiv r\Delta\phi$ and $\Delta z$. Mille takes this residual as an input, along with a set of local and global derivatives. Local derivatives are used by pede to do its own track fits during the optimization procedure. The local derivatives in the transverse plane (corresponding to $\Delta s$) and in the $r$-$z$ plane (corresponding to $\Delta z$) are the derivatives of equations \ref{eq:zrfit} and \ref{eq:yxfit} with respect to their parameters. Since those equations are linear in their parameters (and also their independent variables, for that matter), the derivatives for a track as described in section~\ref{sec:fitdecomp} are simply
 \begin{equation} \label{eq:sderlc}
 \frac{\partial y'(x')}{\partial y_0'} = 1, \quad 
 \frac{\partial y'(x')}{\partial m'} = x' 
@@ -331,6 +374,8 @@ and
 \frac{\partial z(x')}{\partial z_0} = 1, \quad 
 \frac{\partial z(x')}{\partial c} = x' 
 \end{equation}
+
+Note that there are two separate track fits taking place in the alignment software: the track fits described in section~\ref{sec:trackfit}, and the local fits performed by the pede program during aligmnent. The former provides the residuals needed as input, while the latter is used internally during the optimization to compute changes in the residuals as the detector elements are moved around.
 
 The global derivatives express the degree of change in $\Delta s$ or $\Delta z$ if a detector unit is displaced along a given coordinate. For example, $\partial \Delta s / \partial x = -\sin \phi_{rot}$. 
 \begin{table}[htb!]
@@ -354,13 +399,12 @@ roll & 1 & 0 \\
 The global derivatives available in \texttt{MilleFunctions.h} are listed in table \ref{tab:dergl}. The expressions for some global derivatives are self-evident; for others, a fair bit of drawing diagrams, trigonometric manipulation, and some trial and error were involved (especially to get the signs right).
 
 \subsection{Global parameters and labels} \label{sec:labels}
-Millepede requires that a unique label be assigned to a triplet consisting of one item from each of the following categories:
+Millepede requires that a unique (but arbitrary) integer label be assigned to a pair consisting of one item from each of the following categories:
 \begin{enumerate}
   \item A detector unit (arm, ladder, or halflayer)
-  \item A residual direction ($\Delta s$ or $\Delta z$)
   \item An alignment coordinate (any variable in the first column of table \ref{tab:dergl}).
 \end{enumerate}
-The bidirectional mapping between global parameter labels and these triplets is implemented in \texttt{ParameterDefs.h}. Not all combinations are useful, or supported by the software. In particluar, the pitch, yaw, and roll rotations are currently implemented for arm units only (but there is no reason these rotations could not be implemented for ladders or halflayers in the future.) A list of labels provided to Millepede must represent a linearly-independent set; otherwise, Millepede will report a rank deficiency after attempting to solve an underdetermined linear system. 
+The bidirectional mapping between global parameter labels and these pairs is implemented in \texttt{ParameterDefs.h}, and the label maps can be printed using \texttt{CheckParameters.C}. Not all combinations are useful or supported by the software. In particluar, the pitch, yaw, and roll rotations are currently implemented for arm units only (but there is no reason these rotations could not be implemented for ladders or halflayers in the future.) A list of labels provided to Millepede must represent a linearly independent set; otherwise, Millepede will report a rank deficiency after attempting to solve an underdetermined linear system. 
 
 % For example, trying to align ladders in the set $\{x, y, s, r\}$ will not work because the $\{x, y\}$ and $\{s, r\}$ sets are linear combinations of one another.
 
@@ -377,7 +421,7 @@ A presigma of 0.01 was applied to a few ladders with particularly low acceptance
 
 Sum constraints are used to fix the average position of a group of detector elements such that their total translation, rotation, or shear is a constant value (usually zero).
 
-Constraint information can be passed to pede in either the steering text file or in one or more dedicated constraint text files. The latter was used for the VTX. The functions to write the constraint file are found in \texttt{ConstraintBuilder.h}. The formatting is simply a \texttt{Parameter} keyword indicating a new block of global parameters, followed by three columns: the parameter label (see section \ref{sec:labels}), a starting value relative to the current position (always zero in Run 14), and a presigma setting.
+Constraint information can be passed to pede in either the steering text file or in one or more dedicated constraint text files. The latter was used for the VTX. The functions to write the constraint file are found in \texttt{ConstraintBuilder.h}. The formatting is simply a \texttt{Parameter} keyword indicating a new block of global parameters, followed by three columns: the parameter label (see section~\ref{sec:labels}), a starting value relative to the current position (always zero in Run 14), and a presigma setting.
 
 For arm alignment, constraints were found to be unnecessary. In \texttt{ConstraintBuilder.h}, there are separate functions to write ladder or halflayer constraints. \texttt{VtxAlign.C} dispatches to one of these functions depending on the \texttt{alignMode} parameter. To modify the existing constraints for a given parameter, there is currently no formal interface; the function bodies were modified directly to change the resulting text files. This was flexible and simple for prototyping and exploration, but there is room for improvement if a more ``proper'' interface is desired.
 
@@ -387,9 +431,32 @@ In retrospect, it would have been best to apply the radial constraint differentl
 
 
 
-\subsection{Pede}
-\section{Orienting the VTX with respect to the central arms}
+\section{VTX self-alignment workflow: how to do it}
+The self-alignment procedure begins with running a zero-field production over a PRDF segment. The output is then filtered in a preprocessing step before alignment. One or more alignment steps are then carried out iteratively. The results from each alignment step are then plotted for analysis.
+
+\subsection{Reconstructing raw data}
+There are scripts and production macros located in \texttt{vtx-align/production/\-zerofield} written by Darren McGlinchey to prepare jobs for the condor batch system at RCF. Darren has also prepared a useful README file in the production subdirectories. The reconstruction output is a set of DST files that are then condensed further to TTrees using the Fun4All module located in \texttt{vtx-align/anavtxcluster}. As a final step of the production phase, the TTrees output from \texttt{anavtxcluster} are merged using ROOT's \texttt{hadd} tool.
+
+\subsection{Filtering production output}
+The preprocessing of the merged production output trees is carried out by \texttt{FilterData.C}. This fits the tracks and locates a vertex, enabling a loose rejection of outlier events. In addition, a loose cut is placed on residual values so that extreme outliers from bad fits are not fed to Millepede.
+
+\subsection{Running \texttt{VtxAlign.C}}
+TODO
+
+\subsection{Orienting the VTX with respect to the central arms}
+This part of the alignment is still WIP. When finished, maybe Darren will write a few paragraphs and add a couple plots.
+
 \section{Procedure followed for Run 14}
+The general alignment strategy for Run 14 was to begin with larger detector units, then proceed to finer granularity as follows:
+\begin{enumerate}
+  \item Find the beamcenter in the initial geometry (0-0), and stick with it for the entirety of the process.
+  \item align the east and west arms to one another
+  \item halflayer alignment
+  \item ladder alignment
+  \item arm-level rotational self-alignment
+\end{enumerate}
+A more detailed history of the alignment steps is shown in table \ref{tab:history}. Some of the steps will be described here. The initial beamcenter was found to be (0.353, 0.0528) cm. This is an input to the reconstruction code that remained constant for the entire process. 
+
 \begin{table}[htb!]
 \centering
 \begin{tabular}{c | c | c | c | c | c | c}
@@ -418,6 +485,12 @@ Geom ID & Alias & Description & \multicolumn{2}{c}{$DCA_{xy}$ E [$\mu$m]}
 \label{tab:history}
 \end{table}
 
+The goal of the first step is to remove the east-to-west offset (EWO) in $x, y$ and $z$. There is a facility for including these EWOs in the production code, but these were not used (or more precisely, they were set to zero.) The EWO is instead included in the VTX geometry parameter file itself. In order to bring the two arms together, all tracks fits included 
+
+% put 0-0 vs 0-1 geom diff plots here: xy | z.
+A large change in the geometry was introduced in this step, particularly in the $z$ coordinate. This can be seen in figure xxx. The zero-field reconstruction was run using the resulting geometry (0-1) in order to reassociate hits to reconstructed standalone tracks. A second identical alignment pass refined the EWO values.
+
+
 \section{Recommendations}
 \begin{itemize}
   \item Use GenerateEvents.C to simulate data with specific misalignments. Then tune VtxAlign.C to correct the misalignment properly. Using the ``sim'' option in VtxAlign.C reduces the sigma parameter passed to Mille so that the $\chi^2/NDF$ is near one.
@@ -425,4 +498,5 @@ Geom ID & Alias & Description & \multicolumn{2}{c}{$DCA_{xy}$ E [$\mu$m]}
   \item If pede complains about a rank defect, check that the constraints have not violated any linear independence requirements. 
 \end{itemize}
 \section{Appendix A: Links to presentations}
+TODO
 \end{document}
