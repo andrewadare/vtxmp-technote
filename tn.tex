@@ -44,7 +44,11 @@
 \section{Introduction}
 The PHENIX VTX detector is designed to locate primary and secondary vertices with a precision of xxx um as well as significantly improve tracking performance in conjunction with other detectors. A software model of the VTX sensors is required during track reconstruction from raw hits. This geometry modeled in the software must reflect the actual position of the VTX sensor planes to within a few tens of microns in order to achieve design resolution in quantities such as the distance of closest approach (DCA) between tracks and the primary vertex. Direct measurements of the sensor planes through surveys can help, but the most precise method for obtaining the correct detector geometry is to use the reconstructed tracks themselves---or more precisely, the distance between track projections and measured hits on a sensor plane. These distances are referred to as ``pulls'' or residuals.
 
-A traditional method of aligning the detector is to histogram the residuals, then directly adjust the position of the detector units such that the residual distributions are centered at zero, with the smallest variance possible. This method handles each detector unit independently, and as such, there is no explicit notion of a global optimum. If one sensor is only partially functional, it is still relocated with equal weight as a fully operational sensor, despite its potentially larger uncertainty or bias. In addition, the sensitive direction the sensors is highly anisotropic in space. For example, the VTX sensors are sensitive primarily in the azimuthal and longitudinal directions. This means that there are strong constraints on certain coordinates and weak constraints in others, depending on sensor and track positions and orientations. The traditional method does not provide a way to properly take this into account.
+A traditional method of aligning the detector is to histogram the residuals, then directly adjust the position of the detector units such that the residual distributions are centered at zero, with the smallest variance possible. This method handles each detector unit independently, and as such, there is no explicit notion of a global optimum. If one sensor is only partially functional, it is still relocated with equal weight as a fully operational sensor, despite its potentially larger uncertainty or bias. 
+
+In addition, the sensitive direction the sensors is highly anisotropic in space. For example, the VTX sensors are sensitive primarily in the azimuthal and longitudinal directions. This means that there are strong constraints on certain coordinates and weak constraints in others, depending on sensor and track positions and orientations. The traditional method does not provide a way to properly take this into account.
+
+In PHENIX, the traditional method uses SvxCentralTracks, which are projected inward from the Drift Chamber and used as a seed for VTX cluster association. This external information TODO finish this sentence
 
 The Millepede package was designed to alleviate these problems by minimizing a global objective rather than handling the detector sub-units in isolation. It works by collecting a large number of residuals, each associated with their own ``local fit object'' (i.e. a track), then trying out various combinations of global parameters (i.e. sensor positions) to find the configuration that minimizes the total overall (squared) distance between the track projections and measured hits. Like many optimization packages, there are a few qualifications: (a) Millepede can only provide a local minimum, and (b) a correct gradient of the objective with respect to each parameter must be provided by the user. In complicated geometries, the latter point can be one of the more difficult parts about getting Millepede to work right.
 
@@ -459,31 +463,54 @@ A more detailed history of the alignment steps is shown in table \ref{tab:histor
 
 \begin{table}[htb!]
 \centering
-\begin{tabular}{c | c | c | c | c | c | c}
-Geom ID & Alias & Description & \multicolumn{2}{c}{$DCA_{xy}$ E [$\mu$m]} 
-                              & \multicolumn{2}{|c}{$DCA_{xy}$ W [$\mu$m]} \\
-(prod-step) & (symlink) &     & $\mu$ & $\sigma$ & $\mu$ & $\sigma$\\
+\begin{tabular}{c | c | c | c}
+Geom ID & Alias & Description & Constraints \\
 \hline
-0-0 & hubert-mod & prod 0    & 63 & 293 & -21 & 261 \\
-0-1 & & arm $x,y,z$          & 15 & 281 & -12 & 261 \\
-1-0 & 0-1 & prod 1           & 10 & 280 &  -7 & 257 \\
-1-1 & & arm $x,y,z$          & 11 & 280 & -10 & 257 \\
-1-2 & & HL $x,y,z,s$         & -5 & 274 &   4 & 248 \\
-2-0 & 1-2 & prod 2           & -4 & 273 &   9 & 248 \\
-2-1 & & HL $x,y,z,s$         & -7 & 273 &   2 & 248 \\
-2-2 & & L $x,y,z,s$          & -1 & 272 &  -3 & 247 \\
-3-0 & 2-2-mod & prod 3       & -1 & 274 &  -2 & 247 \\
-3-1 & & L $x,y,z,s$          & -1 & 274 &   0 & 247 \\
-\colorbox{yellow}{3-2} & & arm $P,Y,R$          &  4 & 272 &  -2 & 244 \\
-\colorbox{yellow}{4-0} & 3-2 & prod 4           &  4 & 270 &  -1 & 241 \\
-4-1 & & L $s,r$              & -2 & 268 &   0 & 242 \\
-5-0 & 4-1 & prod             & -2 & 267 &  -1 & 242 \\
-5-1 & & arm $x,y,z$          &  1 & 266 &  -1 & 242 \\
+0-0 & hubert-mod & prod 0    & -\\
+0-1 & & arm $x,y,z$          & none \\
+1-0 & 0-1 & prod 1           & -\\
+1-1 & & arm $x,y,z$          & none \\
+1-2 & & HL $x,y,z,s$         & $x,y,z,s \in E,W$ sum = 0 \\
+2-0 & 1-2 & prod 2           & -\\
+2-1 & & HL $x,y,z,s$         & $x,y,z,s \in E,W$ sum = 0 \\
+20-2 & & arm $P,Y$           & none \\
+21-0 & 20-2 & prod 3         & -\\
+21-1 & & L $r,s$             & $^\dagger$ \\
+22-0 & 21-1 & prod 4         & -\\
+22-11 & & arm $x,y,z,P,Y$    & none \\
 \hline
 \end{tabular}
-\caption{History of alignment steps for Run 14.}
+\caption{History of alignment steps for Run 14. $^\dagger$For 21-1, all ladder radii were fixed in W arm and in B3E. Radial sums constraints also applied in topmost and bottom-most $\phi$ slices in E arm.}
 \label{tab:history}
 \end{table}
+
+% \begin{table}[htb!]
+% \centering
+% \begin{tabular}{c | c | c | c | c | c | c}
+% Geom ID & Alias & Description & \multicolumn{2}{c}{$DCA_{xy}$ E [$\mu$m]} 
+%                               & \multicolumn{2}{|c}{$DCA_{xy}$ W [$\mu$m]} \\
+% (prod-step) & (symlink) &     & $\mu$ & $\sigma$ & $\mu$ & $\sigma$\\
+% \hline
+% 0-0 & hubert-mod & prod 0    & 63 & 293 & -21 & 261 \\
+% 0-1 & & arm $x,y,z$          & 15 & 281 & -12 & 261 \\
+% 1-0 & 0-1 & prod 1           & 10 & 280 &  -7 & 257 \\
+% 1-1 & & arm $x,y,z$          & 11 & 280 & -10 & 257 \\
+% 1-2 & & HL $x,y,z,s$         & -5 & 274 &   4 & 248 \\
+% 2-0 & 1-2 & prod 2           & -4 & 273 &   9 & 248 \\
+% 2-1 & & HL $x,y,z,s$         & -7 & 273 &   2 & 248 \\
+% 2-2 & & L $x,y,z,s$          & -1 & 272 &  -3 & 247 \\
+% 3-0 & 2-2-mod & prod 3       & -1 & 274 &  -2 & 247 \\
+% 3-1 & & L $x,y,z,s$          & -1 & 274 &   0 & 247 \\
+% \colorbox{yellow}{3-2} & & arm $P,Y,R$          &  4 & 272 &  -2 & 244 \\
+% \colorbox{yellow}{4-0} & 3-2 & prod 4           &  4 & 270 &  -1 & 241 \\
+% 4-1 & & L $s,r$              & -2 & 268 &   0 & 242 \\
+% 5-0 & 4-1 & prod             & -2 & 267 &  -1 & 242 \\
+% 5-1 & & arm $x,y,z$          &  1 & 266 &  -1 & 242 \\
+% \hline
+% \end{tabular}
+% \caption{History of alignment steps for Run 14.}
+% \label{tab:history}
+% \end{table}
 
 The goal of the first step is to remove the east-to-west offset (EWO) in $x, y$ and $z$. There is a facility for including these EWOs in the production code, but these were not used (or more precisely, they were set to zero.) The EWO is instead included in the VTX geometry parameter file itself. In order to bring the two arms together, all tracks fits included 
 
